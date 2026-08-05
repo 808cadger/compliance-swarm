@@ -1,0 +1,29 @@
+Account Number,Account Name,Type,Category,Notes
+1000,Business Checking,Asset,Cash,Primary operating account
+1010,Business Savings,Asset,Cash,Tax reserve / buffer account
+1200,Accounts Receivable,Asset,Receivable,Wholesale/net-terms customers only
+1300,Inventory,Asset,Inventory,Cost value of unsold stock
+1500,Equipment & Fixtures,Asset,Fixed Asset,"Shelving, POS hardware, displays"
+1510,Accumulated Depreciation - Equipment,Asset,Contra Asset,
+2000,Accounts Payable,Liability,Payable,Supplier/vendor bills owed
+2100,Credit Card Payable,Liability,Payable,Business card balance
+2200,Sales Tax Payable,Liability,Tax,"Collected from customers, owed to state"
+2300,Payroll Tax Payable,Liability,Tax,Withheld but not yet remitted
+3000,Owner's Equity,Equity,Equity,
+3100,Owner's Draw,Equity,Equity,"Money taken out, not a business expense"
+3200,Retained Earnings,Equity,Equity,
+4000,Product Sales,Revenue,Client Income,Point-of-sale and online sales
+4100,Wholesale Income,Revenue,Client Income,Bulk/B2B orders
+4900,Other Income,Revenue,Other,"Interest, refunds, misc"
+5000,Cost of Goods Sold,COGS,COGS,Wholesale cost of inventory sold
+5010,Shipping & Freight In,COGS,COGS,Cost to receive inventory
+6000,Software & Subscriptions,Expense,Software & Subscriptions,"POS system, inventory software"
+6100,Professional Services,Expense,Professional Services,"Accountant, lawyer, consultants"
+6200,Advertising,Expense,Advertising,
+6300,Store Supplies,Expense,Office Supplies,"Bags, receipt paper, packaging"
+6400,Fuel & Auto,Expense,Fuel & Auto,Delivery or supply runs
+6500,Rent & Utilities,Expense,Utilities,"Storefront lease, electric, water"
+6600,Merchant & Bank Fees,Expense,Fees,"Card processing fees - often the largest hidden cost, review monthly"
+6700,Owner Draw/Payroll,Expense,Owner Draw/Payroll,"Route through payroll agent, not books agent"
+6800,Taxes,Expense,Taxes,"Estimated tax payments, licenses, permits"
+7000,Uncategorized,Expense,Uncategorized,"Books agent fallback bucket - review monthly, should trend toward zero"

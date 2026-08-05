@@ -1,0 +1,27 @@
+Account Number,Account Name,Type,Category,Notes
+1000,Business Checking,Asset,Cash,Primary operating account
+1010,Business Savings,Asset,Cash,Tax reserve / buffer account
+1200,Accounts Receivable,Asset,Receivable,Invoiced but unpaid client work
+1500,Equipment,Asset,Fixed Asset,"Computers, cameras, tools over capitalization threshold"
+1510,Accumulated Depreciation - Equipment,Asset,Contra Asset,
+2000,Accounts Payable,Liability,Payable,Vendor bills owed
+2100,Credit Card Payable,Liability,Payable,Business card balance
+2200,Sales Tax / GE Tax Payable,Liability,Tax,"State excise/general excise tax collected, not yet remitted"
+2300,Payroll Tax Payable,Liability,Tax,Withheld but not yet remitted
+3000,Owner's Equity,Equity,Equity,
+3100,Owner's Draw,Equity,Equity,"Money taken out, not a business expense"
+3200,Retained Earnings,Equity,Equity,
+4000,Client Income,Revenue,Client Income,Matches books agent category
+4100,Retainer Income,Revenue,Client Income,Recurring retainer clients
+4900,Other Income,Revenue,Other,"Interest, refunds, misc"
+5000,Software & Subscriptions,Expense,Software & Subscriptions,Matches books agent category
+5100,Professional Services,Expense,Professional Services,"Accountant, lawyer, consultants"
+5200,Advertising,Expense,Advertising,Matches books agent category
+5300,Office Supplies,Expense,Office Supplies,Matches books agent category
+5400,Fuel & Auto,Expense,Fuel & Auto,Mileage or vehicle costs
+5500,Utilities,Expense,Utilities,Matches books agent category
+5600,Meals & Entertainment,Expense,Meals & Entertainment,"Track separately - partial deductibility rules apply, confirm with CPA"
+5700,Owner Draw/Payroll,Expense,Owner Draw/Payroll,"Matches books agent category - route through payroll agent, not books agent"
+5800,Taxes,Expense,Taxes,"Estimated tax payments, license fees"
+5900,Bank & Merchant Fees,Expense,Fees,"Stripe, Square, bank fees"
+6000,Uncategorized,Expense,Uncategorized,"Books agent fallback bucket - review monthly, should trend toward zero"
