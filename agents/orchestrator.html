@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Compliance Swarm Orchestrator</title>
+<style>
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; line-height: 1.5; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.1rem; }
+.tabs { margin-block-end: 1rem; }
+.tabs button { padding: 0.5rem 1rem; border: 1px solid #8886; background: transparent; cursor: pointer; font: inherit; border-radius: 4px; margin-inline-end: 0.5rem; }
+.tabs button.active { background: rgba(136, 136, 136, 0.2); font-weight: 600; }
+.workspace { display: flex; gap: 1.5rem; }
+.agent-panes { flex: 2; min-width: 0; }
+.agent-frame { display: none; width: 100%; height: 720px; border: 1px solid #8886; border-radius: 6px; }
+.agent-frame.active { display: block; }
+aside#queue { flex: 1; border: 1px solid #8886; border-radius: 6px; padding: 1rem; max-height: 720px; overflow-y: auto; }
+.queue-item { border-bottom: 1px solid #8884; padding-block: 0.75rem; }
+.queue-item:last-child { border-bottom: none; }
+.queue-agent-tag { text-transform: uppercase; font-size: 0.7rem; opacity: 0.6; letter-spacing: 0.05em; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; }
+.badge-approved { background: #2ecc7133; color: #1e8449; }
+.badge-rejected { background: #e74c3c33; color: #c0392b; }
+button { cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 4px; border: 1px solid #8886; background: transparent; font: inherit; }
+</style>
+</head>
+<body>
+<h1>Compliance Swarm Orchestrator</h1>
+<div class="tabs">
+  <button data-tab="payroll" class="active">Payroll</button>
+  <button data-tab="books">Books</button>
+  <button data-tab="contract">Contract</button>
+</div>
+<div class="workspace">
+  <div class="agent-panes">
+    <iframe data-agent="payroll" src="payroll-review-demo.html" class="agent-frame active"></iframe>
+    <iframe data-agent="books" src="books-review-demo.html" class="agent-frame"></iframe>
+    <iframe data-agent="contract" src="contract-review-demo.html" class="agent-frame"></iframe>
+  </div>
+  <aside id="queue"></aside>
+</div>
+<script>
+document.querySelectorAll('.tabs button').forEach(tabBtn => {
+  tabBtn.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.agent-frame').forEach(f => f.classList.remove('active'));
+    tabBtn.classList.add('active');
+    document.querySelector(`iframe[data-agent="${tabBtn.dataset.tab}"]`).classList.add('active');
+  });
+});
+</script>
+<script>
+const QUEUE_KEY = 'compliance-swarm-queue';
+
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch (e) { return []; }
+}
+function saveQueue(queue) { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue)); }
+
+let queue = loadQueue();
+
+function renderQueue() {
+  const el = document.getElementById('queue');
+  if (queue.length === 0) {
+    el.innerHTML = '<h2>Approval Queue</h2><p>Nothing flagged yet.</p>';
+    return;
+  }
+  el.innerHTML = '<h2>Approval Queue</h2>' + queue.map(item => `
+    <div class="queue-item" data-item-id="${item.itemId}">
+      <div class="queue-agent-tag">${item.agentId}</div>
+      <p>${item.summary}</p>
+      ${item.decision
+        ? `<span class="badge badge-${item.decision}">${item.decision}</span>`
+        : `<button data-approve="${item.itemId}">Approve</button> <button data-reject="${item.itemId}">Reject</button>`}
+    </div>`).join('');
+
+  el.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
+  el.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
+}
+
+function decide(itemId, decision) {
+  const item = queue.find(q => q.itemId === itemId);
+  if (!item) return;
+  item.decision = decision;
+  saveQueue(queue);
+  renderQueue();
+  const iframe = document.querySelector(`iframe[data-agent="${item.agentId}"]`);
+  if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision }, '*');
+}
+
+window.addEventListener('message', e => {
+  if (!e.data || e.data.type !== 'swarm-flag') return;
+  const { agentId, itemId, summary } = e.data;
+  let item = queue.find(q => q.itemId === itemId);
+  if (!item) {
+    item = { itemId, agentId, summary, decision: null };
+    queue.push(item);
+    saveQueue(queue);
+  } else if (item.decision) {
+    const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
+    if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, '*');
+  }
+  renderQueue();
+});
+
+renderQueue();
+</script>
+</body>
+</html>
