@@ -190,7 +190,8 @@ function findFlaggedClauses(contractText) {
   paragraphs.forEach((para, i) => {
     MATCH_RULES.forEach(rule => {
       if (rule.test.test(para)) {
-        flags.push({ id: `contract-${i}-${rule.clauseName}`, paragraphIndex: i, text: para.trim(), clauseName: rule.clauseName.replace('\\/', '/') });
+        const clauseName = rule.clauseName.replace('\\/', '/');
+        flags.push({ id: `contract-${i}-${clauseName}`, paragraphIndex: i, text: para.trim(), clauseName });
       }
     });
   });
