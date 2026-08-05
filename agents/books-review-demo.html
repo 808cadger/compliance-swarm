@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Books Review Agent</title>
+<style>
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 960px; margin-inline: auto; line-height: 1.5; }
+h1 { font-size: 1.4rem; }
+table { width: 100%; border-collapse: collapse; margin-block: 1rem; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #8884; }
+.flag-row { background: rgba(245, 163, 35, 0.1); }
+.flag-row td:first-child { border-left: 3px solid #f5a323; }
+button { cursor: pointer; padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid #8886; background: transparent; font: inherit; }
+button:hover { background: rgba(136, 136, 136, 0.15); }
+.settings-panel { border: 1px solid #8886; border-radius: 6px; padding: 0.75rem 1rem; margin-block-end: 1rem; }
+.settings-panel label { display: block; margin-block: 0.35rem; }
+.settings-note { font-size: 0.8rem; opacity: 0.7; margin: 0.35rem 0 0; }
+.model-error { color: #c0392b; font-size: 0.85rem; }
+.disclaimer { font-size: 0.8rem; opacity: 0.75; border-left: 3px solid #8886; padding-inline-start: 0.75rem; margin-block: 1rem; }
+textarea { width: 100%; min-height: 6rem; font-family: inherit; box-sizing: border-box; }
+.explanation { font-size: 0.85rem; margin-block-start: 0.5rem; padding: 0.5rem; background: rgba(136, 136, 136, 0.08); border-radius: 4px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; margin-inline-start: 0.5rem; }
+.badge-approved { background: #2ecc7133; color: #1e8449; }
+.badge-rejected { background: #e74c3c33; color: #c0392b; }
+.rate-note { font-size: 0.75rem; opacity: 0.7; }
+select { padding: 0.3rem; margin-inline-end: 1rem; }
+</style>
+</head>
+<body>
+<h1>Books Review Agent</h1>
+<div class="disclaimer">Categorization suggestions are a starting point, not a bookkeeping or tax determination. Review before posting to your ledger.</div>
+<div id="settings"></div>
+<div>
+  <select id="coaSelect">
+    <option value="service-business-coa.csv">Service Business</option>
+    <option value="retail-business-coa.csv">Retail Business</option>
+  </select>
+  <textarea id="txnInput"></textarea>
+  <button id="loadBtn">Load Transactions</button>
+</div>
+<div id="table-container"></div>
+
+<script>
+// --- Shared: model settings & call (localStorage-backed) ---
+const SETTINGS_KEY = 'compliance-swarm-settings';
+
+function loadSettings() {
+  const defaults = { mode: 'cloud', apiKey: '', localEndpoint: 'http://localhost:11434/api/chat', localModel: 'llama3' };
+  try {
+    return Object.assign(defaults, JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {});
+  } catch (e) {
+    return defaults;
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function renderSettingsPanel(container) {
+  const s = loadSettings();
+  container.innerHTML = `
+    <fieldset class="settings-panel">
+      <legend>Model Settings</legend>
+      <label><input type="radio" name="mode" value="cloud" ${s.mode === 'cloud' ? 'checked' : ''}> Cloud (Anthropic)</label>
+      <label><input type="radio" name="mode" value="local" ${s.mode === 'local' ? 'checked' : ''}> Local (Ollama)</label>
+      <div class="cloud-fields" style="${s.mode === 'cloud' ? '' : 'display:none'}">
+        <label>API Key <input type="password" id="apiKeyInput" value="${s.apiKey}" placeholder="sk-ant-..."></label>
+      </div>
+      <div class="local-fields" style="${s.mode === 'local' ? '' : 'display:none'}">
+        <label>Endpoint <input type="text" id="endpointInput" value="${s.localEndpoint}"></label>
+        <label>Model <input type="text" id="localModelInput" value="${s.localModel}"></label>
+      </div>
+      <p class="settings-note">Stored only in this browser's localStorage.</p>
+    </fieldset>
+  `;
+  container.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
+    const settings = loadSettings();
+    settings.mode = e.target.value;
+    saveSettings(settings);
+    renderSettingsPanel(container);
+  }));
+  const apiKeyInput = container.querySelector('#apiKeyInput');
+  if (apiKeyInput) apiKeyInput.addEventListener('change', e => { const st = loadSettings(); st.apiKey = e.target.value; saveSettings(st); });
+  const endpointInput = container.querySelector('#endpointInput');
+  if (endpointInput) endpointInput.addEventListener('change', e => { const st = loadSettings(); st.localEndpoint = e.target.value; saveSettings(st); });
+  const localModelInput = container.querySelector('#localModelInput');
+  if (localModelInput) localModelInput.addEventListener('change', e => { const st = loadSettings(); st.localModel = e.target.value; saveSettings(st); });
+}
+
+async function callModel(prompt) {
+  const settings = loadSettings();
+  if (settings.mode === 'cloud') {
+    if (!settings.apiKey) throw new Error('NO_KEY');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 400,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) throw new Error(`Cloud call failed: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.content.map(c => c.text || '').join('');
+  } else {
+    if (!settings.localEndpoint) throw new Error('NO_ENDPOINT');
+    const res = await fetch(settings.localEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: settings.localModel || 'llama3',
+        messages: [{ role: 'user', content: prompt }],
+        stream: false
+      })
+    });
+    if (!res.ok) throw new Error(`Local call failed: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.message ? data.message.content : JSON.stringify(data);
+  }
+}
+
+function renderModelError(container, err) {
+  if (err.message === 'NO_KEY') {
+    container.textContent = 'Add an API key in Settings to use Explain.';
+  } else if (err.message === 'NO_ENDPOINT') {
+    container.textContent = 'Set a Local endpoint in Settings to use Explain.';
+  } else {
+    container.textContent = 'Model call failed: ' + err.message;
+  }
+  container.classList.add('model-error');
+}
+
+// --- Shared: notify orchestrator when embedded ---
+function notifyParentIfEmbedded(agentId, item) {
+  if (window.self === window.top) return;
+  window.parent.postMessage({ type: 'swarm-flag', agentId, itemId: item.id, summary: item.summary }, '*');
+}
+
+function listenForDecisions(onDecision) {
+  window.addEventListener('message', e => {
+    if (e.data && e.data.type === 'swarm-decision') {
+      onDecision(e.data.itemId, e.data.decision);
+    }
+  });
+}
+
+const AGENT_ID = 'books';
+
+async function loadCoA(filename) {
+  const res = await fetch(`../templates/chart_of_accounts/${filename}`);
+  const text = await res.text();
+  const [header, ...rows] = text.trim().split('\n');
+  return rows.map(line => {
+    const cols = line.split(',');
+    return { name: cols[1], category: cols[3] };
+  }).filter(c => c.category && c.category !== 'Uncategorized');
+}
+
+const SAMPLE_TRANSACTIONS = [
+  { date: '2026-07-01', description: 'STRIPE PAYOUT', amount: 1420.00 },
+  { date: '2026-07-02', description: 'AWS billing', amount: -84.12 },
+  { date: '2026-07-03', description: 'Google Workspace', amount: -18.00 },
+  { date: '2026-07-05', description: 'Shell Gas Station #442', amount: -52.30 },
+  { date: '2026-07-08', description: 'Cheesecake Factory - client lunch', amount: -63.40 },
+  { date: '2026-07-10', description: 'Zylo Consulting Group Inc', amount: -450.00 },
+];
+
+const CATEGORY_KEYWORDS = [
+  { keywords: ['stripe', 'square', 'paypal fee'], category: 'Bank & Merchant Fees' },
+  { keywords: ['aws', 'google workspace', 'notion', 'figma', 'quickbooks'], category: 'Software & Subscriptions' },
+  { keywords: ['shell', 'chevron', 'exxon', 'gas station'], category: 'Fuel & Auto' },
+  { keywords: ['restaurant', 'cafe', 'lunch', 'cheesecake factory', 'starbucks'], category: 'Meals & Entertainment' },
+  { keywords: ['facebook ads', 'google ads', 'instagram promo'], category: 'Advertising' },
+];
+
+function categorize(txn) {
+  const desc = txn.description.toLowerCase();
+  for (const entry of CATEGORY_KEYWORDS) {
+    if (entry.keywords.some(k => desc.includes(k))) {
+      return entry.category;
+    }
+  }
+  return null;
+}
+
+function parseTxnCSV(text) {
+  const lines = text.trim().split('\n').filter(Boolean);
+  const [header, ...rows] = lines;
+  return rows.map(line => {
+    const [date, description, amount] = line.split(',').map(v => v.trim());
+    return { date, description, amount: parseFloat(amount) };
+  });
+}
+
+let currentTxns = SAMPLE_TRANSACTIONS;
+let currentCoA = [];
+
+async function render() {
+  renderSettingsPanel(document.getElementById('settings'));
+  currentCoA = await loadCoA(document.getElementById('coaSelect').value);
+  const container = document.getElementById('table-container');
+  const categoryNames = currentCoA.map(c => c.category);
+
+  const rowsHtml = currentTxns.map((txn, i) => {
+    const category = categorize(txn);
+    const isUncategorized = !category;
+    const itemId = `books-${i}`;
+    return `
+      <tr class="${isUncategorized ? 'flag-row' : ''}" data-row="${i}">
+        <td>${txn.date}</td>
+        <td>${txn.description}</td>
+        <td>$${txn.amount.toFixed(2)}</td>
+        <td>
+          ${category ? category : `Uncategorized <button data-suggest="${i}">AI Suggest</button><span data-badge-for="${itemId}"></span>`}
+          <div class="explanation" data-explanation-for="${i}"></div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+
+  container.querySelectorAll('[data-suggest]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = Number(btn.dataset.suggest);
+      const txn = currentTxns[i];
+      const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      explDiv.textContent = 'Thinking...';
+      const prompt = `Suggest the best-matching category for this business transaction from the list, and explain briefly why. Transaction: "${txn.description}", amount $${txn.amount}. Available categories: ${categoryNames.join(', ')}.`;
+      try {
+        const text = await callModel(prompt);
+        explDiv.textContent = text;
+      } catch (err) {
+        renderModelError(explDiv, err);
+      }
+    });
+  });
+
+  currentTxns.forEach((txn, i) => {
+    if (!categorize(txn)) {
+      notifyParentIfEmbedded(AGENT_ID, { id: `books-${i}`, summary: `Uncategorized: ${txn.description} ($${txn.amount.toFixed(2)})` });
+    }
+  });
+}
+
+document.getElementById('coaSelect').addEventListener('change', render);
+document.getElementById('loadBtn').addEventListener('click', () => {
+  const text = document.getElementById('txnInput').value.trim();
+  if (text) currentTxns = parseTxnCSV(text);
+  render();
+});
+
+listenForDecisions((itemId, decision) => {
+  const el = document.querySelector(`[data-badge-for="${itemId}"]`);
+  if (el) el.innerHTML = `<span class="badge badge-${decision}">${decision}</span>`;
+});
+
+render();
+</script>
+</body>
+</html>
