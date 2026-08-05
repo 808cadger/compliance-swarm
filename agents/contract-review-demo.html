@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Contract Review Agent</title>
+<style>
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 960px; margin-inline: auto; line-height: 1.5; }
+h1 { font-size: 1.4rem; }
+table { width: 100%; border-collapse: collapse; margin-block: 1rem; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #8884; }
+.flag-row { background: rgba(245, 163, 35, 0.1); }
+.flag-row td:first-child { border-left: 3px solid #f5a323; }
+button { cursor: pointer; padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid #8886; background: transparent; font: inherit; }
+button:hover { background: rgba(136, 136, 136, 0.15); }
+.settings-panel { border: 1px solid #8886; border-radius: 6px; padding: 0.75rem 1rem; margin-block-end: 1rem; }
+.settings-panel label { display: block; margin-block: 0.35rem; }
+.settings-note { font-size: 0.8rem; opacity: 0.7; margin: 0.35rem 0 0; }
+.model-error { color: #c0392b; font-size: 0.85rem; }
+.disclaimer { font-size: 0.8rem; opacity: 0.75; border-left: 3px solid #8886; padding-inline-start: 0.75rem; margin-block: 1rem; }
+textarea { width: 100%; min-height: 6rem; font-family: inherit; box-sizing: border-box; }
+.explanation { font-size: 0.85rem; margin-block-start: 0.5rem; padding: 0.5rem; background: rgba(136, 136, 136, 0.08); border-radius: 4px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; margin-inline-start: 0.5rem; }
+.badge-approved { background: #2ecc7133; color: #1e8449; }
+.badge-rejected { background: #e74c3c33; color: #c0392b; }
+.rate-note { font-size: 0.75rem; opacity: 0.7; }
+select { padding: 0.3rem; margin-inline-end: 1rem; }
+mark { background: rgba(245, 163, 35, 0.35); padding: 0 0.1rem; }
+</style>
+</head>
+<body>
+<h1>Contract Review Agent</h1>
+<div class="disclaimer">Pattern matches below are a first pass, not legal advice. Have a lawyer review anything before you sign it.</div>
+<div id="settings"></div>
+<textarea id="contractInput"></textarea>
+<button id="scanBtn">Scan Contract</button>
+<div id="results"></div>
+
+<script>
+// --- Shared: model settings & call (localStorage-backed) ---
+const SETTINGS_KEY = 'compliance-swarm-settings';
+
+function loadSettings() {
+  const defaults = { mode: 'cloud', apiKey: '', localEndpoint: 'http://localhost:11434/api/chat', localModel: 'llama3' };
+  try {
+    return Object.assign(defaults, JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {});
+  } catch (e) {
+    return defaults;
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function renderSettingsPanel(container) {
+  const s = loadSettings();
+  container.innerHTML = `
+    <fieldset class="settings-panel">
+      <legend>Model Settings</legend>
+      <label><input type="radio" name="mode" value="cloud" ${s.mode === 'cloud' ? 'checked' : ''}> Cloud (Anthropic)</label>
+      <label><input type="radio" name="mode" value="local" ${s.mode === 'local' ? 'checked' : ''}> Local (Ollama)</label>
+      <div class="cloud-fields" style="${s.mode === 'cloud' ? '' : 'display:none'}">
+        <label>API Key <input type="password" id="apiKeyInput" value="${s.apiKey}" placeholder="sk-ant-..."></label>
+      </div>
+      <div class="local-fields" style="${s.mode === 'local' ? '' : 'display:none'}">
+        <label>Endpoint <input type="text" id="endpointInput" value="${s.localEndpoint}"></label>
+        <label>Model <input type="text" id="localModelInput" value="${s.localModel}"></label>
+      </div>
+      <p class="settings-note">Stored only in this browser's localStorage.</p>
+    </fieldset>
+  `;
+  container.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
+    const settings = loadSettings();
+    settings.mode = e.target.value;
+    saveSettings(settings);
+    renderSettingsPanel(container);
+  }));
+  const apiKeyInput = container.querySelector('#apiKeyInput');
+  if (apiKeyInput) apiKeyInput.addEventListener('change', e => { const st = loadSettings(); st.apiKey = e.target.value; saveSettings(st); });
+  const endpointInput = container.querySelector('#endpointInput');
+  if (endpointInput) endpointInput.addEventListener('change', e => { const st = loadSettings(); st.localEndpoint = e.target.value; saveSettings(st); });
+  const localModelInput = container.querySelector('#localModelInput');
+  if (localModelInput) localModelInput.addEventListener('change', e => { const st = loadSettings(); st.localModel = e.target.value; saveSettings(st); });
+}
+
+async function callModel(prompt) {
+  const settings = loadSettings();
+  if (settings.mode === 'cloud') {
+    if (!settings.apiKey) throw new Error('NO_KEY');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': settings.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 400,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!res.ok) throw new Error(`Cloud call failed: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.content.map(c => c.text || '').join('');
+  } else {
+    if (!settings.localEndpoint) throw new Error('NO_ENDPOINT');
+    const res = await fetch(settings.localEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: settings.localModel || 'llama3',
+        messages: [{ role: 'user', content: prompt }],
+        stream: false
+      })
+    });
+    if (!res.ok) throw new Error(`Local call failed: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return data.message ? data.message.content : JSON.stringify(data);
+  }
+}
+
+function renderModelError(container, err) {
+  if (err.message === 'NO_KEY') {
+    container.textContent = 'Add an API key in Settings to use Explain.';
+  } else if (err.message === 'NO_ENDPOINT') {
+    container.textContent = 'Set a Local endpoint in Settings to use Explain.';
+  } else {
+    container.textContent = 'Model call failed: ' + err.message;
+  }
+  container.classList.add('model-error');
+}
+
+// --- Shared: notify orchestrator when embedded ---
+function notifyParentIfEmbedded(agentId, item) {
+  if (window.self === window.top) return;
+  window.parent.postMessage({ type: 'swarm-flag', agentId, itemId: item.id, summary: item.summary }, '*');
+}
+
+function listenForDecisions(onDecision) {
+  window.addEventListener('message', e => {
+    if (e.data && e.data.type === 'swarm-decision') {
+      onDecision(e.data.itemId, e.data.decision);
+    }
+  });
+}
+
+const AGENT_ID = 'contract';
+
+async function loadClauseLibrary() {
+  const res = await fetch('../templates/contract_clause_library/red-flag-clause-library.md');
+  const text = await res.text();
+  const sections = text.split(/\n## /).slice(1); // drop title + intro before first ##
+  return sections.map(section => {
+    const lines = section.trim().split('\n');
+    const name = lines[0].trim();
+    const body = lines.slice(1).join('\n');
+    const pattern = (body.match(/Pattern:\s*([\s\S]*?)\nWhy it matters:/) || [])[1] || '';
+    const why = (body.match(/Why it matters:\s*([\s\S]*?)\nFallback ask:/) || [])[1] || '';
+    const fallback = (body.match(/Fallback ask:\s*([\s\S]*?)(\n\n|$)/) || [])[1] || '';
+    return { name, pattern: pattern.trim(), why: why.trim(), fallback: fallback.trim() };
+  }).filter(e => e.name !== 'Add new entries here whenever the contract agent flags a pattern not yet covered above —\nthis file is what actually improves over time, more than the code around it.'.split('\n')[0]);
+}
+
+const SAMPLE_CONTRACT = `SERVICES AGREEMENT
+
+1. INDEMNIFICATION. Contractor shall indemnify and hold harmless Client from any and all claims, damages, and expenses arising from this Agreement, without limitation.
+
+2. TERM AND TERMINATION. Client may terminate this Agreement at any time, without notice. Contractor must provide 45 days written notice to terminate.
+
+3. INTELLECTUAL PROPERTY. All work product, including drafts, concepts, and unused ideas, shall be assigned to Client.
+
+4. PAYMENT. Client shall pay invoices within 60 days. Client may withhold payment at Client's sole discretion pending satisfaction review.
+
+5. GOVERNING LAW. This Agreement is governed by the laws of the state where Client is headquartered, with venue to be determined solely by Client.`;
+
+const MATCH_RULES = [
+  { clauseName: 'Indemnification', test: /indemnif|any and all claims/i },
+  { clauseName: 'Termination', test: /at any time,?\s*without notice/i },
+  { clauseName: 'Intellectual property', test: /unused ideas|all work product/i },
+  { clauseName: 'Payment terms', test: /sole discretion|60 days|90 days/i },
+  { clauseName: 'Governing law \\/ venue', test: /venue to be determined|headquartered/i },
+];
+
+function findFlaggedClauses(contractText) {
+  const paragraphs = contractText.split(/\n\n+/);
+  const flags = [];
+  paragraphs.forEach((para, i) => {
+    MATCH_RULES.forEach(rule => {
+      if (rule.test.test(para)) {
+        flags.push({ id: `contract-${i}-${rule.clauseName}`, paragraphIndex: i, text: para.trim(), clauseName: rule.clauseName.replace('\\/', '/') });
+      }
+    });
+  });
+  return flags;
+}
+
+let clauseLibrary = [];
+
+function highlightMatch(text, rule) {
+  return text.replace(rule.test, m => `<mark>${m}</mark>`);
+}
+
+async function scan() {
+  clauseLibrary = await loadClauseLibrary();
+  const text = document.getElementById('contractInput').value || SAMPLE_CONTRACT;
+  const flags = findFlaggedClauses(text);
+  const container = document.getElementById('results');
+
+  if (flags.length === 0) {
+    container.innerHTML = '<p>No known red-flag patterns matched. Not a guarantee the contract is safe — just that nothing in the library matched.</p>';
+    return;
+  }
+
+  container.innerHTML = flags.map((flag, i) => {
+    const rule = MATCH_RULES.find(r => r.clauseName.replace('\\/', '/') === flag.clauseName);
+    const highlighted = highlightMatch(flag.text, rule);
+    return `
+      <div class="flag-row" style="padding: 0.75rem; margin-block: 0.5rem; border-radius: 4px;">
+        <strong>${flag.clauseName}</strong>
+        <p>${highlighted}</p>
+        <button data-explain="${i}">Explain + suggest redline</button>
+        <span data-badge-for="${flag.id}"></span>
+        <div class="explanation" data-explanation-for="${i}"></div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('[data-explain]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = Number(btn.dataset.explain);
+      const flag = flags[i];
+      const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
+      const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      explDiv.textContent = 'Thinking...';
+      const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
+      try {
+        const explanation = await callModel(prompt);
+        explDiv.textContent = explanation;
+      } catch (err) {
+        renderModelError(explDiv, err);
+      }
+    });
+  });
+
+  flags.forEach(flag => {
+    notifyParentIfEmbedded(AGENT_ID, { id: flag.id, summary: `${flag.clauseName}: ${flag.text.slice(0, 60)}...` });
+  });
+}
+
+document.getElementById('scanBtn').addEventListener('click', scan);
+document.getElementById('contractInput').value = SAMPLE_CONTRACT;
+renderSettingsPanel(document.getElementById('settings'));
+scan();
+
+listenForDecisions((itemId, decision) => {
+  const el = document.querySelector(`[data-badge-for="${itemId}"]`);
+  if (el) el.innerHTML = `<span class="badge badge-${decision}">${decision}</span>`;
+});
+</script>
+</body>
+</html>
