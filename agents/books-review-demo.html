@@ -156,12 +156,19 @@ const AGENT_ID = 'books';
 
 async function loadCoA(filename) {
   const res = await fetch(`../templates/chart_of_accounts/${filename}`);
+  if (!res.ok) throw new Error(`${filename} (${res.status})`);
   const text = await res.text();
   const [header, ...rows] = text.trim().split('\n');
-  return rows.map(line => {
-    const cols = line.split(',');
-    return { name: cols[1], category: cols[3] };
-  }).filter(c => c.category && c.category !== 'Uncategorized');
+  // Column layout: Account Number,Account Name,Type,Category,Notes
+  // The categorization heuristic's target labels ("Bank & Merchant Fees",
+  // "Software & Subscriptions", etc.) match Account Name (col 1), not the
+  // coarser Category column (col 3) — surface Account Name to the model,
+  // restricted to Expense-type rows and excluding the Uncategorized fallback.
+  const names = rows
+    .map(line => line.split(','))
+    .filter(cols => (cols[2] || '').trim() === 'Expense' && (cols[1] || '').trim() !== 'Uncategorized')
+    .map(cols => cols[1].trim());
+  return [...new Set(names)].map(name => ({ name, category: name }));
 }
 
 const SAMPLE_TRANSACTIONS = [
@@ -205,8 +212,14 @@ let currentCoA = [];
 
 async function render() {
   renderSettingsPanel(document.getElementById('settings'));
-  currentCoA = await loadCoA(document.getElementById('coaSelect').value);
   const container = document.getElementById('table-container');
+  let coaError = null;
+  try {
+    currentCoA = await loadCoA(document.getElementById('coaSelect').value);
+  } catch (err) {
+    currentCoA = [];
+    coaError = err.message;
+  }
   const categoryNames = currentCoA.map(c => c.category);
 
   const rowsHtml = currentTxns.map((txn, i) => {
@@ -226,6 +239,7 @@ async function render() {
   }).join('');
 
   container.innerHTML = `
+    ${coaError ? `<p class="model-error">Could not load the chart-of-accounts template: ${coaError}. Transactions below still use local keyword rules; the AI Suggest category list will be empty until this loads (verify the file exists and you're serving this over http://, not file://).</p>` : ''}
     <table>
       <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th></tr></thead>
       <tbody>${rowsHtml}</tbody>

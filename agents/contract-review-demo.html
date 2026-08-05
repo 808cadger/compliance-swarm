@@ -151,6 +151,7 @@ const AGENT_ID = 'contract';
 
 async function loadClauseLibrary() {
   const res = await fetch('../templates/contract_clause_library/red-flag-clause-library.md');
+  if (!res.ok) throw new Error(`red-flag-clause-library.md (${res.status})`);
   const text = await res.text();
   const sections = text.split(/\n## /).slice(1); // drop title + intro before first ##
   return sections.map(section => {
@@ -182,6 +183,8 @@ const MATCH_RULES = [
   { clauseName: 'Intellectual property', test: /unused ideas|all work product/i },
   { clauseName: 'Payment terms', test: /sole discretion|60 days|90 days/i },
   { clauseName: 'Governing law \\/ venue', test: /venue to be determined|headquartered/i },
+  { clauseName: 'Non-compete \\/ non-solicit', test: /the united states|any business that could be considered a competitor/i },
+  { clauseName: 'Auto-renewal', test: /auto-?renew|automatically renews?|renews? annually/i },
 ];
 
 function findFlaggedClauses(contractText) {
@@ -195,6 +198,19 @@ function findFlaggedClauses(contractText) {
       }
     });
   });
+  // Liability is structurally different: the red flag is the ABSENCE of
+  // limitation-of-liability language anywhere in the contract, not a phrase
+  // that appears when the clause is bad — so it's a whole-document check
+  // rather than a per-paragraph MATCH_RULES entry.
+  const hasLiabilityLanguage = paragraphs.some(p => /limitation of liability|liability[\s\S]{0,80}cap/i.test(p));
+  if (!hasLiabilityLanguage) {
+    flags.push({
+      id: 'contract-liability-absence',
+      paragraphIndex: -1,
+      text: 'No limitation-of-liability language found anywhere in this contract.',
+      clauseName: 'Liability',
+    });
+  }
   return flags;
 }
 
@@ -205,19 +221,36 @@ function highlightMatch(text, rule) {
 }
 
 async function scan() {
-  clauseLibrary = await loadClauseLibrary();
+  const container = document.getElementById('results');
+  // The keyword/regex first pass (findFlaggedClauses) only needs MATCH_RULES,
+  // not the fetched library, so it must still run and render flags even if
+  // the library fetch below fails. Only the Explain button's extra context
+  // (pattern/why/fallback) depends on the library and should degrade alone.
+  let clauseLibraryError = null;
+  try {
+    clauseLibrary = await loadClauseLibrary();
+  } catch (err) {
+    clauseLibrary = [];
+    clauseLibraryError = err.message;
+  }
+
   const text = document.getElementById('contractInput').value || SAMPLE_CONTRACT;
   const flags = findFlaggedClauses(text);
-  const container = document.getElementById('results');
+
+  const libraryErrorBanner = clauseLibraryError
+    ? `<p class="model-error">Could not load the clause reference library: ${clauseLibraryError}. Flags below still use built-in pattern matching; "Explain + suggest redline" context will be unavailable until this loads (verify the file exists and you're serving this over http://, not file://).</p>`
+    : '';
 
   if (flags.length === 0) {
-    container.innerHTML = '<p>No known red-flag patterns matched. Not a guarantee the contract is safe — just that nothing in the library matched.</p>';
+    container.innerHTML = libraryErrorBanner + '<p>No known red-flag patterns matched. Not a guarantee the contract is safe — just that nothing in the library matched.</p>';
     return;
   }
 
-  container.innerHTML = flags.map((flag, i) => {
+  container.innerHTML = libraryErrorBanner + flags.map((flag, i) => {
     const rule = MATCH_RULES.find(r => r.clauseName.replace('\\/', '/') === flag.clauseName);
-    const highlighted = highlightMatch(flag.text, rule);
+    // The Liability absence flag has no source paragraph to highlight — its
+    // text is a synthesized description, not a quoted excerpt.
+    const highlighted = rule ? highlightMatch(flag.text, rule) : flag.text;
     return `
       <div class="flag-row" style="padding: 0.75rem; margin-block: 0.5rem; border-radius: 4px;">
         <strong>${flag.clauseName}</strong>
@@ -232,8 +265,13 @@ async function scan() {
     btn.addEventListener('click', async () => {
       const i = Number(btn.dataset.explain);
       const flag = flags[i];
-      const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
       const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      if (clauseLibraryError) {
+        explDiv.textContent = 'Clause library context is unavailable (the reference library failed to load), so a detailed redline suggestion can\'t be generated for this flag.';
+        explDiv.classList.add('model-error');
+        return;
+      }
+      const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
       explDiv.textContent = 'Thinking...';
       const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
       try {

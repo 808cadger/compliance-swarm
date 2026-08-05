@@ -62,21 +62,30 @@ let queue = loadQueue();
 
 function renderQueue() {
   const el = document.getElementById('queue');
+  const header = '<h2>Approval Queue</h2><button id="clearQueueBtn">Clear Queue</button>';
   if (queue.length === 0) {
-    el.innerHTML = '<h2>Approval Queue</h2><p>Nothing flagged yet.</p>';
-    return;
-  }
-  el.innerHTML = '<h2>Approval Queue</h2>' + queue.map(item => `
-    <div class="queue-item" data-item-id="${item.itemId}">
-      <div class="queue-agent-tag">${item.agentId}</div>
-      <p>${item.summary}</p>
-      ${item.decision
-        ? `<span class="badge badge-${item.decision}">${item.decision}</span>`
-        : `<button data-approve="${item.itemId}">Approve</button> <button data-reject="${item.itemId}">Reject</button>`}
-    </div>`).join('');
+    el.innerHTML = header + '<p>Nothing flagged yet.</p>';
+  } else {
+    el.innerHTML = header + queue.map(item => `
+      <div class="queue-item" data-item-id="${item.itemId}">
+        <div class="queue-agent-tag">${item.agentId}</div>
+        <p>${item.summary}</p>
+        ${item.decision
+          ? `<span class="badge badge-${item.decision}">${item.decision}</span>`
+          : `<button data-approve="${item.itemId}">Approve</button> <button data-reject="${item.itemId}">Reject</button>`}
+      </div>`).join('');
 
-  el.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
-  el.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
+    el.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
+    el.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
+  }
+  const clearBtn = el.querySelector('#clearQueueBtn');
+  if (clearBtn) clearBtn.addEventListener('click', clearQueue);
+}
+
+function clearQueue() {
+  queue = [];
+  localStorage.removeItem(QUEUE_KEY);
+  renderQueue();
 }
 
 function decide(itemId, decision) {
@@ -96,11 +105,17 @@ window.addEventListener('message', e => {
   if (!item) {
     item = { itemId, agentId, summary, decision: null };
     queue.push(item);
-    saveQueue(queue);
-  } else if (item.decision) {
-    const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
-    if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, '*');
+  } else {
+    // Item IDs are positional (e.g. payroll-3); if the underlying data was
+    // reloaded, the same ID can now describe a different row. Always refresh
+    // the displayed summary so stale text can't linger.
+    item.summary = summary;
+    if (item.decision) {
+      const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
+      if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, '*');
+    }
   }
+  saveQueue(queue);
   renderQueue();
 });
 

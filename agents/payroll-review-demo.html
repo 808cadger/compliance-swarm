@@ -160,6 +160,13 @@ const SAMPLE_TIMESHEET = [
 ];
 
 function computePay(row) {
+  if (row.classification === 'Exempt') {
+    // Exempt employees are paid a standard rate regardless of hours worked —
+    // no OT split applies. Heavy hours logged against a flat rate is exactly
+    // why the misclassification flag exists below.
+    const grossPay = row.hours * row.rate;
+    return { regularPay: grossPay, otPay: 0, grossPay, otHours: 0 };
+  }
   const regularHours = Math.min(row.hours, 40);
   const otHours = Math.max(row.hours - 40, 0);
   const regularPay = regularHours * row.rate;
@@ -186,16 +193,28 @@ function parseCSV(text) {
   const lines = text.trim().split('\n').filter(Boolean);
   const [header, ...rows] = lines;
   const cols = header.split(',').map(c => c.trim().toLowerCase());
+  // Column names are matched by substring so both the strict spec headers
+  // ("Employee, Classification, Hourly Rate, Hours Worked, State") and the
+  // shorter aliases ("Rate", "Hours") resolve to the same fields.
+  const colIndex = {};
+  cols.forEach((col, i) => {
+    if (col.includes('rate')) colIndex.rate = i;
+    else if (col.includes('hours')) colIndex.hours = i;
+    else if (col.includes('employee')) colIndex.employee = i;
+    else if (col.includes('classification')) colIndex.classification = i;
+    else if (col.includes('state')) colIndex.state = i;
+  });
   return rows.map(line => {
     const values = line.split(',').map(v => v.trim());
-    const obj = {};
-    cols.forEach((col, i) => { obj[col] = values[i]; });
+    const rate = parseFloat(values[colIndex.rate]);
+    const hours = parseFloat(values[colIndex.hours]);
     return {
-      employee: obj.employee,
-      classification: obj.classification,
-      rate: parseFloat(obj.rate),
-      hours: parseFloat(obj.hours),
-      state: obj.state,
+      employee: values[colIndex.employee],
+      classification: values[colIndex.classification],
+      rate,
+      hours,
+      state: values[colIndex.state],
+      parseError: Number.isNaN(rate) || Number.isNaN(hours),
     };
   });
 }
@@ -206,6 +225,12 @@ function render() {
   renderSettingsPanel(document.getElementById('settings'));
   const container = document.getElementById('table-container');
   const rowsHtml = currentRows.map((row, i) => {
+    if (row.parseError) {
+      return `
+      <tr class="flag-row" data-row="${i}">
+        <td colspan="7">&#9888; Could not parse this row — check your CSV headers (expected Employee, Classification, Hourly Rate (or Rate), Hours Worked (or Hours), State). Raw values: ${row.employee || ''}, ${row.classification || ''}, ${row.state || ''}</td>
+      </tr>`;
+    }
     const pay = computePay(row);
     const flags = flagRow(row);
     const isFlagged = flags.length > 0;
@@ -247,6 +272,7 @@ function render() {
   });
 
   currentRows.forEach((row, i) => {
+    if (row.parseError) return;
     const flags = flagRow(row);
     if (flags.length > 0) {
       notifyParentIfEmbedded(AGENT_ID, { id: `payroll-${i}`, summary: `${row.employee}: ${flags[0]}` });
