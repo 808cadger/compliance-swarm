@@ -103,23 +103,38 @@ shared/
   policy data (rejected as unnecessary: the files are small, static, and
   already loadable per-agent with no build step).
 
-### Agent-result shape (`callModel`'s direct return, `templateVersion` added afterward by the caller; backs the badges)
+### Agent-result shape (`callModel`'s exact, direct return)
 
 ```json
 {
+  "text": "...",
   "provider": "ollama",
   "model": "llama3.1:8b",
-  "text": "...",
-  "templateVersion": null,
-  "agentId": "payroll_explainer"
+  "usage": {
+    "inputTokens": null,
+    "outputTokens": null
+  }
 }
 ```
 
-`templateVersion` is `null` for payroll (no fetched template file exists for
-it — see Badges section) and the source filename string (e.g.
-`"service-business-coa.csv"` or `"red-flag-clause-library.md"`) for books/
-contract, set by the calling agent code (not by `callModel`, which has no
-knowledge of templates) before the result is handed to the badge renderer.
+This is purely "what did the model call produce" — `provider`/`model` echo
+`config.provider`/`config.model` (the values `resolveModelConfig` already
+resolved), `text` is the response content, and `usage` is normalized
+token-count data extracted from the provider's raw response by that
+provider module (`providers/anthropic.js` reads `data.usage.input_tokens`/
+`output_tokens`; `providers/ollama.js` reads `data.prompt_eval_count`/
+`data.eval_count`). Either field is `null` if the provider's response
+didn't include it — never omitted, so callers can destructure without
+existence checks.
+
+Neither `agentId` nor `templateVersion` are part of this object —
+`callModel` has no knowledge of either. The calling agent code already
+knows its own `agentId` (it's a hardcoded constant in that file, same as
+today's `CONFIG_KEY`) and, for books/contract, the source template filename
+it fetched — both are attached by that agent's own code when it builds the
+on-page badge from the result (see Badges section), not by `callModel` or
+`shared/schemas/agent-result.schema.json`, which documents exactly the
+object above.
 
 ## `config/model-policy.json`
 
@@ -208,7 +223,6 @@ repo):
 ```js
 function resolveModelConfig(agentId, modelPolicy, settings) {
   const base = {
-    agentId,
     ...modelPolicy.defaults,
     ...(modelPolicy.agents?.[agentId] || {})
   };
@@ -271,21 +285,15 @@ first and passes the plain object. `callModel` re-checks `allowedProviders`
 (defense in depth against a hand-built `config` object bypassing
 `resolveModelConfig`), then delegates to `providers/anthropic.js`'s or
 `providers/ollama.js`'s `call(config, messages)` based on `config.provider`,
-and wraps the returned text into the agent-result shape
-`{provider, model, text, agentId}` — `provider`/`model` copied from
-`config` (the same values `resolveModelConfig` resolved), `agentId` copied
-from `config.agentId` (see below), `text` from the provider module's
-response. `callModel` has no knowledge of templates, so `templateVersion`
-is never set here — the calling agent's own code sets
-`result.templateVersion = '<source filename>'` after `callModel` returns,
-only for books/contract (payroll leaves it unset/`null`, per the Badges
-section). This makes `callModel` and both provider modules pure functions
-of their input, independently reasoned about without
-`localStorage`/`fetch`-config-loading in the mix.
-
-`resolveModelConfig` includes `agentId` in every object it returns (added
-once, at the top of the merge: `{ agentId, ...base, ... }`), so `callModel`
-always has it without needing it as a separate parameter.
+and returns exactly the agent-result shape documented above:
+`{text, provider, model, usage}`. `provider`/`model` are copied from
+`config` (the same values `resolveModelConfig` resolved); `text`/`usage`
+come from the provider module's response. Neither `callModel` nor either
+provider module ever sees or sets `agentId`/`templateVersion` — those are
+attached by the calling agent's own code afterward, when it builds the
+on-page badge (see Badges section). This makes `callModel` and both
+provider modules pure functions of their input, independently reasoned
+about without `localStorage`/`fetch`-config-loading in the mix.
 
 ## Policy invariants — load-time tripwires
 
@@ -338,20 +346,22 @@ because it's the case the policy explicitly calls out).
 ## Badges
 
 Every agent result (the Explain / AI-Suggest / Explain-and-redline output)
-renders a badge next to it:
+renders a badge next to it, built by the calling agent's own code from the
+`callModel()` return value plus data only that agent knows:
 
-- `Local · llama3.1:8b` or `Cloud · claude-sonnet-5` — from the resolved
-  `config.provider`/`config.model` that actually produced this result.
-- A second badge showing the source template's identity: for the books
-  agent, which chart-of-accounts file was loaded (`service-business-coa.csv`
-  or `retail-business-coa.csv`); for the contract agent, the clause-library
-  file it parsed (`red-flag-clause-library.md`, no per-file versioning
-  exists in this repo today, so the badge shows the filename — a real
-  version/commit-hash badge would need the file itself to carry a version
-  marker, out of scope for this revision to add); for payroll, no separate
-  "template" exists (the minimum-wage table is inline JS, not a fetched
-  file) — the payroll agent shows only the provider/model badge, not a
-  second template badge.
+- `Local · llama3.1:8b` or `Cloud · claude-sonnet-5` — directly from
+  `result.provider`/`result.model`.
+- A second badge showing the source template's identity, for books/contract
+  only: which chart-of-accounts file was loaded
+  (`service-business-coa.csv`/`retail-business-coa.csv`) or which
+  clause-library file was parsed (`red-flag-clause-library.md`). The agent's
+  own code already holds this filename (it's the argument it passed to its
+  own `fetch()` call earlier) and attaches it directly to the badge-rendering
+  call — no per-file versioning exists in this repo today, so the badge
+  shows the filename, not a hash; real version/commit-hash tracking is out
+  of scope for this revision. Payroll has no fetched template (the
+  minimum-wage table is inline JS) — its badge omits this second element
+  entirely, showing only the provider/model badge.
 
 ## Migration
 
