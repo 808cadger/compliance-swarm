@@ -402,16 +402,45 @@ resolved config per result.
 - Runtime JSON Schema validation against `shared/schemas/*.json` — those
   files are committed as a documentation/contract artifact only, per the
   "docs-only" decision above; no validator library is loaded.
-- **Structured findings output** (`{agent, templateVersion, findings:
-  [{severity, title, evidence, referenceId, suggestedQuestion}]}`) —
-  replacing each agent's current ad-hoc flag shape (payroll's `flagRow()`
-  strings, books' uncategorized-transaction detection, contract's
-  `findFlaggedClauses()` output) with this common structure across all
-  three agents, plus real per-template version tags (e.g.
-  `"clause-library-v1"`, not just a filename). Deliberately deferred to a
-  separate spec/branch after this one ships — it's a restructuring of each
-  agent's core findings data model, not a model-routing concern, and
-  deserves its own brainstorm rather than riding on this branch's diff.
+- **Structured findings output** — replacing each agent's current ad-hoc
+  flag shape (payroll's `flagRow()` strings, books' uncategorized-transaction
+  detection, contract's `findFlaggedClauses()` output) with a common,
+  versioned finding record across all three agents, plus real per-template
+  version tags (not just a filename). Deliberately deferred to a separate
+  branch, **`feature/structured-findings-v1`**, after this one ships — it's
+  a restructuring of each agent's core findings data model, not a
+  model-routing concern, and deserves its own brainstorm rather than riding
+  on this branch's diff. Its first deliverable's target shape, captured here
+  so it isn't lost before that branch starts:
+  ```json
+  {
+    "schemaVersion": 1,
+    "id": "finding_...",
+    "agentId": "payroll_review",
+    "severity": "high",
+    "status": "open",
+    "title": "Potential overtime discrepancy",
+    "evidence": {
+      "summary": "Employee worked 46 hours; overtime threshold exceeded.",
+      "sourceReference": "payroll-row-12",
+      "sourceText": "..."
+    },
+    "reference": {
+      "id": "payroll_overtime_threshold",
+      "templateSource": "templates/payroll_checklists/us-federal.json",
+      "templateVersion": "2026-08-07"
+    },
+    "suggestedQuestion": "Confirm whether the six excess hours were paid at the applicable overtime rate.",
+    "createdAt": "2026-08-07T18:30:00.000Z",
+    "model": { "provider": "ollama", "name": "llama3.1:8b" }
+  }
+  ```
+  Note `agentId: "payroll_review"` here vs. this branch's `CONFIG_KEY =
+  'payroll_explainer'` — the two id spaces aren't necessarily the same
+  (`payroll_explainer` names a model-call site, `payroll_review` reads more
+  like an agent-identity/module name); reconciling that naming is one of the
+  first questions the `feature/structured-findings-v1` brainstorm needs to
+  resolve, not something to guess at here.
 - **Versioned `postMessage` event envelope** (`{version, type:
   "compliance-swarm:flag-created", agentId, payload}`), generalizing
   `orchestrator.html`'s current ad-hoc `{type: 'swarm-flag', agentId,
