@@ -399,3 +399,13 @@ resolved config per result.
 - Runtime JSON Schema validation against `shared/schemas/*.json` — those
   files are committed as a documentation/contract artifact only, per the
   "docs-only" decision above; no validator library is loaded.
+- **Structured findings output** (`{agent, templateVersion, findings:
+  [{severity, title, evidence, referenceId, suggestedQuestion}]}`) —
+  replacing each agent's current ad-hoc flag shape (payroll's `flagRow()`
+  strings, books' uncategorized-transaction detection, contract's
+  `findFlaggedClauses()` output) with this common structure across all
+  three agents, plus real per-template version tags (e.g.
+  `"clause-library-v1"`, not just a filename). Deliberately deferred to a
+  separate spec/branch after this one ships — it's a restructuring of each
+  agent's core findings data model, not a model-routing concern, and
+  deserves its own brainstorm rather than riding on this branch's diff.
