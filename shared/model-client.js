@@ -46,10 +46,11 @@ export function loadSettings() {
   if (!raw) return freshSettings();
   if (raw.schemaVersion === 2) return raw;
   // Pre-v2 shape (predates this feature, or the unreleased intermediate
-  // branch shape) — migrate, preserving whatever the user had, forced to
-  // force-cloud so behavior doesn't silently change out from under them.
+  // branch shape) — migrate, preserving an explicit prior 'local' choice as
+  // force-local; everything else defaults to force-cloud so behavior
+  // doesn't silently change out from under them.
   const migrated = freshSettings();
-  migrated.mode = 'force-cloud';
+  migrated.mode = raw.mode === 'local' ? 'force-local' : 'force-cloud';
   if (raw.apiKey) migrated.cloud.apiKey = raw.apiKey;
   if (raw.localEndpoint) migrated.local.endpoint = raw.localEndpoint;
   if (raw.localModel) migrated.local.model = raw.localModel;
@@ -136,7 +137,14 @@ export function resolveModelConfig(agentId, modelPolicy, settings) {
   if (settings.mode === 'custom' && settings.agentOverrides?.[agentId]) {
     const merged = { ...base, ...settings.agentOverrides[agentId] };
     assertAllowed(merged.provider, modelPolicy);
-    return merged;
+    return {
+      ...merged,
+      apiKey: settings.cloud.apiKey,
+      endpoint:
+        merged.provider === 'ollama'
+          ? (merged.endpoint || settings.local.endpoint)
+          : (merged.endpoint || settings.cloud.endpoint)
+    };
   }
 
   // repo-defaults
