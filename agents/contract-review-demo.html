@@ -36,159 +36,16 @@ mark { background: rgba(245, 163, 35, 0.35); padding: 0 0.1rem; }
 <button id="scanBtn">Scan Contract</button>
 <div id="results"></div>
 
-<script>
-// --- Shared: model settings & call (localStorage-backed) ---
-const SETTINGS_KEY = 'compliance-swarm-settings';
-
-function loadSettings() {
-  const defaults = { mode: 'auto', apiKey: '', localEndpoint: 'http://localhost:11434/api/chat', localModel: 'llama3' };
-  try {
-    return Object.assign(defaults, JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {});
-  } catch (e) {
-    return defaults;
-  }
-}
-
-function saveSettings(settings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-}
-
-// --- Shared: model config (config/model-config.json, no secrets, committed to git) ---
-const FALLBACK_MODEL_CONFIG = {
-  version: 1,
-  defaults: { provider: 'anthropic', model: 'claude-sonnet-5', maxTokens: 400 },
-  agents: {},
-  policy: { allowCloud: true, allowLocal: true, requireHumanApproval: true, allowExecutedActions: false }
-};
-
-let cachedModelConfig = null;
-
-function assertPolicyInvariants(policy) {
-  if (policy.requireHumanApproval !== true || policy.allowExecutedActions !== false) {
-    throw new Error('model-config.json violates policy invariants: requireHumanApproval must be true and allowExecutedActions must be false');
-  }
-}
-
-async function loadModelConfig() {
-  if (cachedModelConfig) return cachedModelConfig;
-  let config;
-  try {
-    const res = await fetch('../config/model-config.json');
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    config = await res.json();
-  } catch (err) {
-    console.warn('model-config.json failed to load, using built-in defaults:', err.message);
-    config = FALLBACK_MODEL_CONFIG;
-  }
-  assertPolicyInvariants(config.policy);
-  cachedModelConfig = config;
-  return config;
-}
-
-function resolveModelConfig(configKey) {
-  const config = cachedModelConfig || FALLBACK_MODEL_CONFIG;
-  return Object.assign({}, config.defaults, config.agents[configKey] || {});
-}
-
-function renderSettingsPanel(container) {
-  const s = loadSettings();
-  const policy = (cachedModelConfig || FALLBACK_MODEL_CONFIG).policy;
-  container.innerHTML = `
-    <fieldset class="settings-panel">
-      <legend>Model Settings</legend>
-      <label><input type="radio" name="mode" value="auto" ${s.mode === 'auto' ? 'checked' : ''}> Auto (recommended)</label>
-      ${policy.allowCloud ? `<label><input type="radio" name="mode" value="cloud" ${s.mode === 'cloud' ? 'checked' : ''}> Cloud (Anthropic)</label>` : ''}
-      ${policy.allowLocal ? `<label><input type="radio" name="mode" value="local" ${s.mode === 'local' ? 'checked' : ''}> Local (Ollama)</label>` : ''}
-      <div class="cloud-fields" style="${s.mode === 'local' ? 'display:none' : ''}">
-        <label>API Key <input type="password" id="apiKeyInput" value="${s.apiKey}" placeholder="sk-ant-..."></label>
-      </div>
-      <div class="local-fields" style="${s.mode === 'local' ? '' : 'display:none'}">
-        <label>Endpoint <input type="text" id="endpointInput" value="${s.localEndpoint}"></label>
-        <label>Model <input type="text" id="localModelInput" value="${s.localModel}"></label>
-      </div>
-      <p class="settings-note">Stored only in this browser's localStorage. Auto uses this agent's default model from config/model-config.json.</p>
-    </fieldset>
-  `;
-  container.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
-    const settings = loadSettings();
-    settings.mode = e.target.value;
-    saveSettings(settings);
-    renderSettingsPanel(container);
-  }));
-  const apiKeyInput = container.querySelector('#apiKeyInput');
-  if (apiKeyInput) apiKeyInput.addEventListener('change', e => { const st = loadSettings(); st.apiKey = e.target.value; saveSettings(st); });
-  const endpointInput = container.querySelector('#endpointInput');
-  if (endpointInput) endpointInput.addEventListener('change', e => { const st = loadSettings(); st.localEndpoint = e.target.value; saveSettings(st); });
-  const localModelInput = container.querySelector('#localModelInput');
-  if (localModelInput) localModelInput.addEventListener('change', e => { const st = loadSettings(); st.localModel = e.target.value; saveSettings(st); });
-}
-
-async function callModel(prompt, configKey) {
-  const settings = loadSettings();
-  const config = await loadModelConfig();
-  const resolved = resolveModelConfig(configKey);
-  const useAuto = settings.mode === 'auto';
-  const provider = useAuto ? resolved.provider : (settings.mode === 'cloud' ? 'anthropic' : 'ollama');
-
-  if (provider === 'anthropic' && !config.policy.allowCloud) throw new Error('POLICY_BLOCKED_CLOUD');
-  if (provider === 'ollama' && !config.policy.allowLocal) throw new Error('POLICY_BLOCKED_LOCAL');
-
-  if (provider === 'anthropic') {
-    if (!settings.apiKey) throw new Error('NO_KEY');
-    const body = {
-      model: useAuto ? resolved.model : 'claude-sonnet-5',
-      max_tokens: resolved.maxTokens,
-      messages: [{ role: 'user', content: prompt }]
-    };
-    if (resolved.temperature !== undefined) body.temperature = resolved.temperature;
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': settings.apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error(`Cloud call failed: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    return data.content.map(c => c.text || '').join('');
-  } else {
-    const endpoint = useAuto ? resolved.endpoint : settings.localEndpoint;
-    if (!endpoint) throw new Error('NO_ENDPOINT');
-    const body = {
-      model: useAuto ? resolved.model : (settings.localModel || 'llama3'),
-      messages: [{ role: 'user', content: prompt }],
-      stream: false,
-      options: { num_predict: resolved.maxTokens }
-    };
-    if (resolved.temperature !== undefined) body.options.temperature = resolved.temperature;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error(`Local call failed: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    return data.message ? data.message.content : JSON.stringify(data);
-  }
-}
-
-function renderModelError(container, err) {
-  if (err.message === 'NO_KEY') {
-    container.textContent = 'Add an API key in Settings to use Explain.';
-  } else if (err.message === 'NO_ENDPOINT') {
-    container.textContent = 'Set a Local endpoint in Settings to use Explain.';
-  } else if (err.message === 'POLICY_BLOCKED_CLOUD') {
-    container.textContent = 'Cloud calls are disabled by policy (config/model-config.json). Switch to Local in Settings.';
-  } else if (err.message === 'POLICY_BLOCKED_LOCAL') {
-    container.textContent = 'Local calls are disabled by policy (config/model-config.json). Switch to Cloud in Settings.';
-  } else {
-    container.textContent = 'Model call failed: ' + err.message;
-  }
-  container.classList.add('model-error');
-}
+<script type="module">
+import {
+  loadSettings,
+  loadModelPolicy,
+  resolveModelConfig,
+  callModel,
+  renderSettingsPanel,
+  renderModelError,
+  renderResultBadge
+} from '../shared/model-client.js';
 
 // --- Shared: notify orchestrator when embedded ---
 function notifyParentIfEmbedded(agentId, item) {
@@ -206,6 +63,7 @@ function listenForDecisions(onDecision) {
 
 const AGENT_ID = 'contract';
 const CONFIG_KEY = 'contract_review';
+const CLAUSE_LIBRARY_FILENAME = 'red-flag-clause-library.md';
 
 async function loadClauseLibrary() {
   const res = await fetch('../templates/contract_clause_library/red-flag-clause-library.md');
@@ -279,6 +137,7 @@ function highlightMatch(text, rule) {
 }
 
 async function scan() {
+  const modelPolicy = await loadModelPolicy();
   const container = document.getElementById('results');
   // The keyword/regex first pass (findFlaggedClauses) only needs MATCH_RULES,
   // not the fetched library, so it must still run and render flags even if
@@ -316,6 +175,7 @@ async function scan() {
         <button data-explain="${i}">Explain + suggest redline</button>
         <span data-badge-for="${flag.id}"></span>
         <div class="explanation" data-explanation-for="${i}"></div>
+        <span data-model-badge-for="${i}"></span>
       </div>`;
   }).join('');
 
@@ -324,6 +184,7 @@ async function scan() {
       const i = Number(btn.dataset.explain);
       const flag = flags[i];
       const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      const badgeSpan = container.querySelector(`[data-model-badge-for="${i}"]`);
       if (clauseLibraryError) {
         explDiv.textContent = 'Clause library context is unavailable (the reference library failed to load), so a detailed redline suggestion can\'t be generated for this flag.';
         explDiv.classList.add('model-error');
@@ -332,10 +193,13 @@ async function scan() {
       const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
       explDiv.classList.remove('model-error');
       explDiv.textContent = 'Thinking...';
+      if (badgeSpan) badgeSpan.innerHTML = '';
       const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
       try {
-        const explanation = await callModel(prompt, CONFIG_KEY);
-        explDiv.textContent = explanation;
+        const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
+        const result = await callModel(config, [{ role: 'user', content: prompt }]);
+        explDiv.textContent = result.text;
+        if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result, { templateVersion: CLAUSE_LIBRARY_FILENAME });
       } catch (err) {
         renderModelError(explDiv, err);
       }
@@ -350,10 +214,10 @@ async function scan() {
 document.getElementById('scanBtn').addEventListener('click', scan);
 document.getElementById('contractInput').value = SAMPLE_CONTRACT;
 
-loadModelConfig()
-  .then(() => {
-    renderSettingsPanel(document.getElementById('settings'));
-    scan();
+loadModelPolicy()
+  .then(modelPolicy => {
+    renderSettingsPanel(document.getElementById('settings'), modelPolicy);
+    return scan();
   })
   .catch(err => {
     document.body.innerHTML = `<p style="color:#c0392b; padding:2rem;">Configuration error: ${err.message}</p>`;
