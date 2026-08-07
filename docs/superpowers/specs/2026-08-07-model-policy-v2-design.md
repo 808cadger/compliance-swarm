@@ -409,3 +409,13 @@ resolved config per result.
   separate spec/branch after this one ships — it's a restructuring of each
   agent's core findings data model, not a model-routing concern, and
   deserves its own brainstorm rather than riding on this branch's diff.
+- **Versioned `postMessage` event envelope** (`{version, type:
+  "compliance-swarm:flag-created", agentId, payload}`), generalizing
+  `orchestrator.html`'s current ad-hoc `{type: 'swarm-flag', agentId,
+  itemId, summary}` / `{type: 'swarm-decision', itemId, decision}` messages
+  into a versioned, namespaced format — with `payload` intended to carry
+  the structured findings object above. Bundled with that same deferred
+  follow-up spec/branch, since the envelope has no content worth building
+  until the findings shape it carries exists. `orchestrator.html` and every
+  agent's `notifyParentIfEmbedded`/`listenForDecisions` code stay exactly
+  as they are today for this branch.
