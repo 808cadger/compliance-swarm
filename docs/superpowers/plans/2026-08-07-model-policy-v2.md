@@ -683,13 +683,14 @@ Replace with:
       explDiv.textContent = 'Thinking...';
       if (badgeSpan) badgeSpan.innerHTML = '';
       const prompt = `You are explaining a payroll compliance flag to a small business owner in plain language, 2-3 sentences. Employee: ${row.employee}, classification: ${row.classification}, rate: $${row.rate}/hr, hours this week: ${row.hours}, state: ${row.state}. Flags raised: ${flags.join('; ')}.`;
-      const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
+      let config;
       try {
+        config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
         const result = await callModel(config, [{ role: 'user', content: prompt }]);
         explDiv.textContent = result.text;
         if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result);
       } catch (err) {
-        if (config.provider === 'ollama' && !err.message.startsWith('POLICY_BLOCKED_PROVIDER')) {
+        if (config?.provider === 'ollama' && !err.message.startsWith('POLICY_BLOCKED_PROVIDER')) {
           explDiv.textContent = 'Local payroll explainer is unavailable. Start Ollama, choose Force Cloud, or choose another local endpoint.';
           explDiv.classList.add('model-error');
         } else {
@@ -841,8 +842,8 @@ Replace with:
       explDiv.textContent = 'Thinking...';
       if (badgeSpan) badgeSpan.innerHTML = '';
       const prompt = `Suggest the best-matching category for this business transaction from the list, and explain briefly why. Transaction: "${txn.description}", amount $${txn.amount}. Available categories: ${categoryNames.join(', ')}.`;
-      const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
       try {
+        const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
         const result = await callModel(config, [{ role: 'user', content: prompt }]);
         explDiv.textContent = result.text;
         if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result, { templateVersion: coaFilename });
@@ -1010,8 +1011,8 @@ Replace with:
       explDiv.textContent = 'Thinking...';
       if (badgeSpan) badgeSpan.innerHTML = '';
       const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
-      const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
       try {
+        const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
         const result = await callModel(config, [{ role: 'user', content: prompt }]);
         explDiv.textContent = result.text;
         if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result, { templateVersion: CLAUSE_LIBRARY_FILENAME });
