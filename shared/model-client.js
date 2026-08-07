@@ -23,6 +23,9 @@ const FALLBACK_MODEL_POLICY = {
   }
 };
 
+const DEFAULT_CLOUD_MODEL = 'claude-sonnet-5';
+const DEFAULT_LOCAL_MODEL = 'llama3';
+
 function freshSettings() {
   return {
     schemaVersion: 2,
@@ -115,7 +118,7 @@ export function resolveModelConfig(agentId, modelPolicy, settings) {
       ...base,
       provider: 'anthropic',
       endpoint: settings.cloud.endpoint,
-      model: settings.cloud.model || base.model,
+      model: settings.cloud.model || (base.provider === 'anthropic' ? base.model : DEFAULT_CLOUD_MODEL),
       apiKey: settings.cloud.apiKey
     };
   }
@@ -126,7 +129,7 @@ export function resolveModelConfig(agentId, modelPolicy, settings) {
       ...base,
       provider: 'ollama',
       endpoint: settings.local.endpoint,
-      model: settings.local.model || base.model
+      model: settings.local.model || (base.provider === 'ollama' ? base.model : DEFAULT_LOCAL_MODEL)
     };
   }
 
@@ -176,6 +179,7 @@ export function renderSettingsPanel(container, modelPolicy) {
       ${allowed.includes('ollama') ? `<label><input type="radio" name="mode" value="force-local" ${s.mode === 'force-local' ? 'checked' : ''}> Force Local (Ollama)</label>` : ''}
       <div class="cloud-fields" style="${s.mode === 'force-local' ? 'display:none' : ''}">
         <label>API Key <input type="password" id="apiKeyInput" value="${s.cloud.apiKey}" placeholder="sk-ant-..."></label>
+        <label>Model <input type="text" id="cloudModelInput" value="${s.cloud.model || ''}" placeholder="(repo default)"></label>
       </div>
       <div class="local-fields" style="${s.mode === 'force-local' ? '' : 'display:none'}">
         <label>Endpoint <input type="text" id="endpointInput" value="${s.local.endpoint}"></label>
@@ -192,6 +196,8 @@ export function renderSettingsPanel(container, modelPolicy) {
   }));
   const apiKeyInput = container.querySelector('#apiKeyInput');
   if (apiKeyInput) apiKeyInput.addEventListener('change', e => { const st = loadSettings(); st.cloud.apiKey = e.target.value; saveSettings(st); });
+  const cloudModelInput = container.querySelector('#cloudModelInput');
+  if (cloudModelInput) cloudModelInput.addEventListener('change', e => { const st = loadSettings(); st.cloud.model = e.target.value || null; saveSettings(st); });
   const endpointInput = container.querySelector('#endpointInput');
   if (endpointInput) endpointInput.addEventListener('change', e => { const st = loadSettings(); st.local.endpoint = e.target.value; saveSettings(st); });
   const localModelInput = container.querySelector('#localModelInput');
