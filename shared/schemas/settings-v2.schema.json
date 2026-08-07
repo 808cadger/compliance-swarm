@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "compliance-swarm localStorage settings (schema v2)",
+  "description": "Per-browser user overrides, stored under the localStorage key 'compliance-swarm-settings'. May contain a real API key — never commit an example with a real value here, and this shape never leaves the browser except a user's own pasted key going directly to that provider's endpoint. Documentation/contract only — not validated at runtime.",
+  "type": "object",
+  "required": ["schemaVersion", "mode", "cloud", "local", "agentOverrides"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "mode": { "type": "string", "enum": ["repo-defaults", "force-cloud", "force-local", "custom"] },
+    "cloud": {
+      "type": "object",
+      "required": ["apiKey", "endpoint", "model"],
+      "properties": {
+        "apiKey": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "model": { "type": ["string", "null"] }
+      }
+    },
+    "local": {
+      "type": "object",
+      "required": ["endpoint", "model"],
+      "properties": {
+        "endpoint": { "type": "string" },
+        "model": { "type": ["string", "null"] }
+      }
+    },
+    "agentOverrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["anthropic", "ollama"] },
+          "model": { "type": "string" }
+        }
+      }
+    }
+  }
+}

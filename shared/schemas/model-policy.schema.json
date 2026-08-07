@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "compliance-swarm model policy",
+  "description": "Non-secret, repo-committed model routing defaults and safety policy. Documentation/contract only — not validated at runtime.",
+  "type": "object",
+  "required": ["version", "defaults", "agents", "policy"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "defaults": {
+      "type": "object",
+      "required": ["provider", "model", "maxTokens", "temperature"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["anthropic", "ollama"] },
+        "model": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "maxTokens": { "type": "integer", "minimum": 1 },
+        "temperature": { "type": "number", "minimum": 0 }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["anthropic", "ollama"] },
+          "model": { "type": "string" },
+          "endpoint": { "type": "string" },
+          "maxTokens": { "type": "integer", "minimum": 1 },
+          "temperature": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["allowedProviders", "allowCloudFallback", "requireHumanApproval", "allowExecutedActions", "payroll"],
+      "properties": {
+        "allowedProviders": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["anthropic", "ollama"] }
+        },
+        "allowCloudFallback": { "type": "boolean", "const": false },
+        "requireHumanApproval": { "type": "boolean", "const": true },
+        "allowExecutedActions": { "type": "boolean", "const": false },
+        "payroll": {
+          "type": "object",
+          "required": ["modelMayCalculatePay", "cloudFallbackAllowed"],
+          "properties": {
+            "modelMayCalculatePay": { "type": "boolean", "const": false },
+            "cloudFallbackAllowed": { "type": "boolean", "const": false }
+          }
+        }
+      }
+    }
+  }
+}

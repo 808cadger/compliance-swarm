@@ -7,14 +7,8 @@
     "temperature": 0.1
   },
   "agents": {
-    "books_review": {
-      "maxTokens": 1200,
-      "temperature": 0
-    },
-    "contract_review": {
-      "maxTokens": 1600,
-      "temperature": 0
-    },
+    "books_review": {},
+    "contract_review": {},
     "payroll_explainer": {
       "provider": "ollama",
       "endpoint": "http://localhost:11434/api/chat",
@@ -24,9 +18,13 @@
     }
   },
   "policy": {
-    "allowCloud": true,
-    "allowLocal": true,
+    "allowedProviders": ["anthropic", "ollama"],
+    "allowCloudFallback": false,
     "requireHumanApproval": true,
-    "allowExecutedActions": false
+    "allowExecutedActions": false,
+    "payroll": {
+      "modelMayCalculatePay": false,
+      "cloudFallbackAllowed": false
+    }
   }
 }
