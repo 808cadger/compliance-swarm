@@ -99,7 +99,7 @@ function renderSettingsPanel(container) {
       <label><input type="radio" name="mode" value="auto" ${s.mode === 'auto' ? 'checked' : ''}> Auto (recommended)</label>
       ${policy.allowCloud ? `<label><input type="radio" name="mode" value="cloud" ${s.mode === 'cloud' ? 'checked' : ''}> Cloud (Anthropic)</label>` : ''}
       ${policy.allowLocal ? `<label><input type="radio" name="mode" value="local" ${s.mode === 'local' ? 'checked' : ''}> Local (Ollama)</label>` : ''}
-      <div class="cloud-fields" style="${s.mode === 'cloud' ? '' : 'display:none'}">
+      <div class="cloud-fields" style="${s.mode === 'local' ? 'display:none' : ''}">
         <label>API Key <input type="password" id="apiKeyInput" value="${s.apiKey}" placeholder="sk-ant-..."></label>
       </div>
       <div class="local-fields" style="${s.mode === 'local' ? '' : 'display:none'}">
@@ -330,6 +330,7 @@ async function scan() {
         return;
       }
       const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
+      explDiv.classList.remove('model-error');
       explDiv.textContent = 'Thinking...';
       const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
       try {

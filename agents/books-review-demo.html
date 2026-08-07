@@ -104,7 +104,7 @@ function renderSettingsPanel(container) {
       <label><input type="radio" name="mode" value="auto" ${s.mode === 'auto' ? 'checked' : ''}> Auto (recommended)</label>
       ${policy.allowCloud ? `<label><input type="radio" name="mode" value="cloud" ${s.mode === 'cloud' ? 'checked' : ''}> Cloud (Anthropic)</label>` : ''}
       ${policy.allowLocal ? `<label><input type="radio" name="mode" value="local" ${s.mode === 'local' ? 'checked' : ''}> Local (Ollama)</label>` : ''}
-      <div class="cloud-fields" style="${s.mode === 'cloud' ? '' : 'display:none'}">
+      <div class="cloud-fields" style="${s.mode === 'local' ? 'display:none' : ''}">
         <label>API Key <input type="password" id="apiKeyInput" value="${s.apiKey}" placeholder="sk-ant-..."></label>
       </div>
       <div class="local-fields" style="${s.mode === 'local' ? '' : 'display:none'}">
@@ -308,6 +308,7 @@ async function render() {
       const i = Number(btn.dataset.suggest);
       const txn = currentTxns[i];
       const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      explDiv.classList.remove('model-error');
       explDiv.textContent = 'Thinking...';
       const prompt = `Suggest the best-matching category for this business transaction from the list, and explain briefly why. Transaction: "${txn.description}", amount $${txn.amount}. Available categories: ${categoryNames.join(', ')}.`;
       try {
