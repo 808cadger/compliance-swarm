@@ -419,3 +419,15 @@ resolved config per result.
   until the findings shape it carries exists. `orchestrator.html` and every
   agent's `notifyParentIfEmbedded`/`listenForDecisions` code stay exactly
   as they are today for this branch.
+- **Provenance record** (`{templateId, templateVersion, templateSource,
+  policyVersion, modelProvider, modelName}`) — a per-finding/per-event
+  stamp tying together a real template version (not just the filename this
+  branch's badges use), `config/model-policy.json`'s own `version` field,
+  and the resolved provider/model. This is the concrete shape the deferred
+  findings/event-envelope work would attach per finding; it also supersedes
+  this branch's "filename only, no real versioning" badge limitation — but
+  only for that future work. This branch's own badges (see Badges section)
+  stay filename-based, unchanged; introducing `templateId`/real
+  `templateVersion` means adding a template registry (or embedding version
+  metadata in `templates/*`), which is squarely part of the deferred
+  follow-up, not this one.
