@@ -39,27 +39,87 @@ they had).
 
 ## File Layout
 
+```
+shared/
+├── model-client.js
+├── providers/
+│   ├── anthropic.js
+│   └── ollama.js
+└── schemas/
+    ├── model-policy.schema.json
+    ├── settings-v2.schema.json
+    └── agent-result.schema.json
+```
+
 - `config/model-policy.json` (renamed from `config/model-config.json`,
   committed, non-secret) — provider/model/token/temperature defaults per
   agent, plus safety policy.
-- `shared/model-client.js` (new) — the extracted shared module: settings
-  load/save/migration, `loadModelPolicy()`, `resolveModelConfig(agentId,
-  policy, settings)`, `callModel(config, messages)`, `renderSettingsPanel`,
-  `renderModelError`, and badge rendering. One copy, not duplicated.
+- `shared/providers/anthropic.js` — one exported function,
+  `call(config, messages)`, that knows only how to shape and send an
+  Anthropic `/v1/messages` request and unwrap its response to plain text.
+  No knowledge of Settings, `localStorage`, or policy.
+- `shared/providers/ollama.js` — same shape, `call(config, messages)`, for
+  the Ollama `/api/chat` request/response format.
+- `shared/model-client.js` — the orchestration layer: settings load/save/
+  migration, `loadModelPolicy()`, `resolveModelConfig(agentId, modelPolicy,
+  settings)`, `renderSettingsPanel`, `renderModelError`, badge rendering,
+  and `callModel(config, messages)` — which does no HTTP itself, just
+  policy/allowedProviders re-validation (defense in depth, same check
+  `resolveModelConfig` already did) then dispatches to
+  `providers/anthropic.js` or `providers/ollama.js` based on
+  `config.provider` and returns an **agent-result** object (see below).
+- All three `shared/*.js` files are ES modules (`export`/`import`), loaded
+  via `<script type="module">` — this repo has no build step and none is
+  being added; native ES modules work directly over the same local static
+  server already required for `fetch()` of sibling files, with zero new
+  tooling. Each agent's own `<script>` tag also becomes `type="module"` so
+  it can `import { resolveModelConfig, callModel, loadModelPolicy,
+  loadSettings, renderSettingsPanel, renderModelError } from
+  '../shared/model-client.js';` — replacing both the old duplicated
+  `<script>` block AND the separate `<script src="...">` tag from the
+  prior (non-module) draft of this revision.
+- `shared/schemas/*.json` — plain JSON Schema documents, committed as the
+  formal contract for `config/model-policy.json`, the `localStorage`
+  settings v2 shape, and the agent-result shape `callModel` returns. **Not
+  validated at runtime** — no schema-validator library is loaded (keeps the
+  "no external CDN dependencies" rule intact); these exist for human
+  reference and any future external tooling (e.g. a CI check run outside
+  the browser). The load-time policy tripwires
+  (`requireHumanApproval`/`allowExecutedActions`/`allowCloudFallback`/etc.)
+  remain hand-written JS assertions in `model-client.js`, independent of
+  these schema files.
 - Each agent HTML file (`payroll-review-demo.html`, `books-review-demo.html`,
-  `contract-review-demo.html`) drops its local copy of that block and instead
-  adds `<script src="../shared/model-client.js"></script>` before its own
-  `<script>` tag. Each file's own script shrinks to page-specific logic plus
-  the call site:
+  `contract-review-demo.html`) drops its local ~150-line duplicated block
+  entirely and instead does:
   ```js
+  import { resolveModelConfig, callModel, loadModelPolicy, loadSettings } from '../shared/model-client.js';
+  const modelPolicy = await loadModelPolicy();
   const config = resolveModelConfig('payroll_explainer', modelPolicy, loadSettings());
-  const result = await callModel(config, messages);
+  const result = await callModel(config, messages); // agent-result object
   ```
 - `orchestrator.html`: unchanged. It has no model-calling code today and
-  doesn't gain any — each agent still `fetch()`es `config/model-policy.json`
-  itself, whether opened standalone or iframed. No `postMessage` distribution
-  of policy data (rejected as unnecessary: the file is small, static, and
-  already fetchable per-agent with no build step).
+  doesn't gain any — each agent still fetches/imports its own dependencies,
+  whether opened standalone or iframed. No `postMessage` distribution of
+  policy data (rejected as unnecessary: the files are small, static, and
+  already loadable per-agent with no build step).
+
+### Agent-result shape (`callModel`'s direct return, `templateVersion` added afterward by the caller; backs the badges)
+
+```json
+{
+  "provider": "ollama",
+  "model": "llama3.1:8b",
+  "text": "...",
+  "templateVersion": null,
+  "agentId": "payroll_explainer"
+}
+```
+
+`templateVersion` is `null` for payroll (no fetched template file exists for
+it — see Badges section) and the source filename string (e.g.
+`"service-business-coa.csv"` or `"red-flag-clause-library.md"`) for books/
+contract, set by the calling agent code (not by `callModel`, which has no
+knowledge of templates) before the result is handed to the badge renderer.
 
 ## `config/model-policy.json`
 
@@ -148,6 +208,7 @@ repo):
 ```js
 function resolveModelConfig(agentId, modelPolicy, settings) {
   const base = {
+    agentId,
     ...modelPolicy.defaults,
     ...(modelPolicy.agents?.[agentId] || {})
   };
@@ -204,13 +265,27 @@ invariant that these are per-call-site properties, not a provider choice.
 Only `provider`/`model`/`endpoint`/`apiKey` vary by `mode`.
 
 `callModel(config, messages)` takes the fully-resolved config object
-(not `(prompt, configKey)` as before) and dispatches to the Anthropic or
-Ollama request shape based on `config.provider`, reading `config.maxTokens`/
-`config.temperature`/`config.model`/`config.endpoint`/`config.apiKey` — no
-`loadSettings()`/`resolveModelConfig()` calls inside `callModel` itself
-anymore; the caller resolves first and passes the plain object. This makes
-`callModel` a pure function of its input, testable independent of
-`localStorage`/`fetch`-config-loading.
+(not `(prompt, configKey)` as before) — no `loadSettings()`/
+`resolveModelConfig()` calls inside `callModel` itself; the caller resolves
+first and passes the plain object. `callModel` re-checks `allowedProviders`
+(defense in depth against a hand-built `config` object bypassing
+`resolveModelConfig`), then delegates to `providers/anthropic.js`'s or
+`providers/ollama.js`'s `call(config, messages)` based on `config.provider`,
+and wraps the returned text into the agent-result shape
+`{provider, model, text, agentId}` — `provider`/`model` copied from
+`config` (the same values `resolveModelConfig` resolved), `agentId` copied
+from `config.agentId` (see below), `text` from the provider module's
+response. `callModel` has no knowledge of templates, so `templateVersion`
+is never set here — the calling agent's own code sets
+`result.templateVersion = '<source filename>'` after `callModel` returns,
+only for books/contract (payroll leaves it unset/`null`, per the Badges
+section). This makes `callModel` and both provider modules pure functions
+of their input, independently reasoned about without
+`localStorage`/`fetch`-config-loading in the mix.
+
+`resolveModelConfig` includes `agentId` in every object it returns (added
+once, at the top of the merge: `{ agentId, ...base, ... }`), so `callModel`
+always has it without needing it as a separate parameter.
 
 ## Policy invariants — load-time tripwires
 
@@ -311,3 +386,6 @@ resolved config per result.
 - Real version/commit-hash tracking for template files (clause library, CoA
   CSVs) — the template badge shows filename only.
 - Changing `templates/` content itself.
+- Runtime JSON Schema validation against `shared/schemas/*.json` — those
+  files are committed as a documentation/contract artifact only, per the
+  "docs-only" decision above; no validator library is loaded.
