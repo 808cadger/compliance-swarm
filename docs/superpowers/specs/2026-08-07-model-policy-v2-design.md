@@ -18,10 +18,10 @@ things that should stay separate: user secrets/local overrides
 - Renames and restructures the committed config to `config/model-policy.json`,
   adding an explicit `allowedProviders` list and safety-tripwire fields.
 - Extracts the ~150-line duplicated model-config/settings block (currently
-  copy-pasted verbatim into all three agent HTML files) into one shared
-  `shared/model-client.js`, loaded via `<script src>` — reversing the
-  "duplication is intentional" decision from the prior design, per explicit
-  instruction this revision.
+  copy-pasted verbatim into all three agent HTML files) into shared ES
+  modules under `shared/` (see File Layout) — reversing the "duplication is
+  intentional" decision from the prior design, per explicit instruction
+  this revision.
 - Adds a hard guarantee, enforced in code: the payroll agent never silently
   falls back to a cloud call. If its resolved local provider is unavailable,
   the user sees an explicit inline message with next steps — nothing is
@@ -216,9 +216,12 @@ per-agent override editor is out of scope for this revision.
 
 ## Resolver
 
-`shared/model-client.js` exports (as ordinary top-level functions, no ES
-module syntax needed — plain script, same convention as the rest of this
-repo):
+`shared/model-client.js` defines these using ES module syntax, per the File
+Layout section's ES-module decision. `resolveModelConfig` is exported
+(`export function resolveModelConfig(...) {...}`) — it's one of the names
+each agent imports (see File Layout). `assertAllowed` is an internal helper
+used by both `resolveModelConfig` and `callModel` within this same file; it
+is not exported, since no agent calls it directly:
 
 ```js
 function resolveModelConfig(agentId, modelPolicy, settings) {
