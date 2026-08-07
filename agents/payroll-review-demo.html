@@ -181,13 +181,14 @@ async function render() {
       explDiv.textContent = 'Thinking...';
       if (badgeSpan) badgeSpan.innerHTML = '';
       const prompt = `You are explaining a payroll compliance flag to a small business owner in plain language, 2-3 sentences. Employee: ${row.employee}, classification: ${row.classification}, rate: $${row.rate}/hr, hours this week: ${row.hours}, state: ${row.state}. Flags raised: ${flags.join('; ')}.`;
-      const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
+      let config;
       try {
+        config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
         const result = await callModel(config, [{ role: 'user', content: prompt }]);
         explDiv.textContent = result.text;
         if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result);
       } catch (err) {
-        if (config.provider === 'ollama' && !err.message.startsWith('POLICY_BLOCKED_PROVIDER')) {
+        if (config?.provider === 'ollama' && !err.message.startsWith('POLICY_BLOCKED_PROVIDER')) {
           explDiv.textContent = 'Local payroll explainer is unavailable. Start Ollama, choose Force Cloud, or choose another local endpoint.';
           explDiv.classList.add('model-error');
         } else {
