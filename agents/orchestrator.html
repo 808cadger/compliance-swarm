@@ -2,15 +2,17 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Compliance Swarm Orchestrator</title>
+<title>OfficeSnap · SnapSuite</title>
 <style>
 :root { color-scheme: light dark; }
 body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; line-height: 1.5; }
-h1 { font-size: 1.4rem; }
+h1 { font-size: 1.4rem; margin-block-end: 0.1rem; }
 h2 { font-size: 1.1rem; }
+.subtitle { margin-block-start: 0; opacity: .75; }
 .tabs { margin-block-end: 1rem; }
-.tabs button { padding: 0.5rem 1rem; border: 1px solid #8886; background: transparent; cursor: pointer; font: inherit; border-radius: 4px; margin-inline-end: 0.5rem; }
+.tabs button, .snap-paperwork { padding: 0.5rem 1rem; border: 1px solid #8886; background: transparent; cursor: pointer; font: inherit; border-radius: 4px; margin-inline-end: 0.5rem; }
 .tabs button.active { background: rgba(136, 136, 136, 0.2); font-weight: 600; }
+.snap-paperwork { margin-block-end: 1rem; font-weight: 600; }
 .workspace { display: flex; gap: 1.5rem; }
 .agent-panes { flex: 2; min-width: 0; }
 .agent-frame { display: none; width: 100%; height: 720px; border: 1px solid #8886; border-radius: 6px; }
@@ -22,72 +24,215 @@ aside#queue { flex: 1; border: 1px solid #8886; border-radius: 6px; padding: 1re
 .badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; }
 .badge-approved { background: #2ecc7133; color: #1e8449; }
 .badge-rejected { background: #e74c3c33; color: #c0392b; }
+.model-error { color: #c0392b; font-size: .85rem; }
+.filter-bar { display: grid; gap: .5rem; margin-block: .75rem 1rem; }
+.filter-bar label { font-size: .8rem; }
+.filter-bar select { display: block; width: 100%; margin-block-start: .15rem; padding: .3rem; font: inherit; }
+.field-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: .75rem; }
+.field-thumb, .thumbnail-unavailable { width: 76px; height: 76px; border: 1px solid #8886; border-radius: 4px; object-fit: cover; }
+.thumbnail-unavailable { display: grid; place-items: center; padding: .35rem; box-sizing: border-box; text-align: center; font-size: .7rem; opacity: .7; }
+.field-row p { margin: .2rem 0 .45rem; }
+details { margin-block-start: .45rem; }
+details dl { margin: .5rem 0 0; }
+details dt { font-weight: 600; }
+details dd { margin: 0 0 .35rem; }
 button { cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 4px; border: 1px solid #8886; background: transparent; font: inherit; }
+@media (max-width: 900px) { .workspace { flex-direction: column; } aside#queue { max-height: none; } }
 </style>
 </head>
 <body>
-<h1>Compliance Swarm Orchestrator</h1>
+<h1>OfficeSnap</h1>
+<p class="subtitle">Paperwork in. Organized data out.</p>
+<button class="snap-paperwork" id="snapPaperworkBtn">Snap Paperwork</button>
 <div class="tabs">
   <button data-tab="payroll" class="active">Payroll</button>
   <button data-tab="books">Books</button>
   <button data-tab="contract">Contract</button>
+  <button data-tab="fieldsnap">FieldSnap</button>
 </div>
 <div class="workspace">
   <div class="agent-panes">
     <iframe data-agent="payroll" src="payroll-review-demo.html" class="agent-frame active"></iframe>
     <iframe data-agent="books" src="books-review-demo.html" class="agent-frame"></iframe>
     <iframe data-agent="contract" src="contract-review-demo.html" class="agent-frame"></iframe>
+    <iframe data-agent="fieldsnap" src="field-capture-demo.html" class="agent-frame"></iframe>
   </div>
   <aside id="queue"></aside>
 </div>
 <script>
-document.querySelectorAll('.tabs button').forEach(tabBtn => {
-  tabBtn.addEventListener('click', () => {
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.agent-frame').forEach(f => f.classList.remove('active'));
-    tabBtn.classList.add('active');
-    document.querySelector(`iframe[data-agent="${tabBtn.dataset.tab}"]`).classList.add('active');
-  });
-});
+function activateTab(tabName) {
+  const tabBtn = document.querySelector(`.tabs button[data-tab="${tabName}"]`);
+  const frame = document.querySelector(`iframe[data-agent="${tabName}"]`);
+  if (!tabBtn || !frame) return;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.agent-frame').forEach(f => f.classList.remove('active'));
+  tabBtn.classList.add('active');
+  frame.classList.add('active');
+}
+document.querySelectorAll('.tabs button').forEach(tabBtn => tabBtn.addEventListener('click', () => activateTab(tabBtn.dataset.tab)));
+document.getElementById('snapPaperworkBtn').addEventListener('click', () => activateTab('fieldsnap'));
 </script>
 <script>
 const QUEUE_KEY = 'compliance-swarm-queue';
+const FIELD_DOCS_QUEUE_KEY = 'field_docs_queue';
+const SNAP_DB_NAME = 'snapsuite_local';
+const SNAP_STORE = 'snaps';
+const BLOB_STORE = 'snap_blobs';
+
+let queue = [];
+let queueError = false;
+let fieldQueueError = false;
+let fieldStorageError = '';
+let fieldDocs = [];
+let objectUrls = [];
+let renderNumber = 0;
+const filters = { status: '', source: '', job: '', type: '' };
 
 function loadQueue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch (e) { return []; }
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    const value = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) throw new Error('not an array');
+    queueError = false;
+    return value.filter(item => item && typeof item === 'object');
+  } catch (e) { queueError = true; return []; }
 }
-function saveQueue(queue) { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue)); }
-
-let queue = loadQueue();
-
-function renderQueue() {
-  const el = document.getElementById('queue');
-  const header = '<h2>Approval Queue</h2><button id="clearQueueBtn">Clear Queue</button>';
-  if (queue.length === 0) {
-    el.innerHTML = header + '<p>Nothing flagged yet.</p>';
-  } else {
-    el.innerHTML = header + queue.map(item => `
-      <div class="queue-item" data-item-id="${item.itemId}">
-        <div class="queue-agent-tag">${item.agentId}</div>
-        <p>${item.summary}</p>
-        ${item.decision
-          ? `<span class="badge badge-${item.decision}">${item.decision}</span>`
-          : `<button data-approve="${item.itemId}">Approve</button> <button data-reject="${item.itemId}">Reject</button>`}
-      </div>`).join('');
-
-    el.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
-    el.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
-  }
+function saveQueue(items) { localStorage.setItem(QUEUE_KEY, JSON.stringify(items)); }
+function loadFieldDocsQueue() {
+  try {
+    const raw = localStorage.getItem(FIELD_DOCS_QUEUE_KEY);
+    const value = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) throw new Error('not an array');
+    fieldQueueError = false;
+    return value.filter(item => item && typeof item === 'object');
+  } catch (e) { fieldQueueError = true; return []; }
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+function revokeObjectUrls() { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; }
+function sourceLabel(source) {
+  return ({ payroll: 'Payroll', books: 'Books', contract: 'Contract', fieldsnap: 'FieldSnap' })[source] || 'Review item';
+}
+function proposalText(proposal) {
+  if (!proposal) return 'No proposal yet';
+  if (typeof proposal === 'string') return proposal || 'No proposal yet';
+  if (typeof proposal !== 'object') return String(proposal);
+  const values = Object.entries(proposal).filter(([, value]) => value !== '' && value != null).map(([key, value]) => {
+    if (typeof value !== 'object') return `${key}: ${value}`;
+    try { return `${key}: ${JSON.stringify(value)}`; } catch { return `${key}: unavailable`; }
+  });
+  return values.length ? values.join(' · ') : 'No proposal yet';
+}
+function gpsText(gps) {
+  return gps ? `${gps.latitude}, ${gps.longitude}${gps.accuracy_m != null ? ` (accuracy ${gps.accuracy_m}m)` : ''}` : 'Unavailable';
+}
+function openSnapDb() { return new Promise((resolve, reject) => {
+  if (!('indexedDB' in window)) return reject(new Error('IndexedDB is not supported by this browser.'));
+  const request = indexedDB.open(SNAP_DB_NAME);
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(new Error('Could not open on-device FieldSnap storage.'));
+}); }
+function idbRequest(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error('IndexedDB operation failed.')); }); }
+async function enrichFieldDocs(indexItems) {
+  fieldStorageError = '';
+  if (!indexItems.length) return [];
+  let db;
+  try { db = await openSnapDb(); }
+  catch (err) { fieldStorageError = err.message; return indexItems.map(index => ({ index, snap: null, blob: null })); }
+  try {
+    if (!db.objectStoreNames.contains(SNAP_STORE) || !db.objectStoreNames.contains(BLOB_STORE)) throw new Error('FieldSnap detail storage is unavailable on this device.');
+    return await Promise.all(indexItems.map(async index => {
+      const tx = db.transaction([SNAP_STORE, BLOB_STORE], 'readonly');
+      const snap = await idbRequest(tx.objectStore(SNAP_STORE).get(index.id));
+      const blobEntry = await idbRequest(tx.objectStore(BLOB_STORE).get(index.id));
+      return { index, snap: snap || null, blob: blobEntry?.blob || null };
+    }));
+  } catch (err) {
+    fieldStorageError = err.message;
+    return indexItems.map(index => ({ index, snap: null, blob: null }));
+  } finally { db.close(); }
+}
+function unifiedItems() {
+  const reviewItems = queue.map(item => ({ kind: 'review', source: item.agentId || '', status: item.decision || 'pending', job: '', type: '', item }));
+  const snapItems = fieldDocs.map(doc => ({ kind: 'field', source: 'fieldsnap', status: doc.snap?.status || doc.index.status || 'needs_review', job: doc.snap?.job_hint || doc.index.job || '', type: doc.snap?.snap_type || '', doc }));
+  return [...reviewItems, ...snapItems];
+}
+function matchesFilters(item) {
+  return (!filters.status || item.status === filters.status)
+    && (!filters.source || item.source === filters.source)
+    && (!filters.job || item.job === filters.job)
+    && (!filters.type || item.type === filters.type);
+}
+function optionsFor(items, key, label) {
+  const values = [...new Set(items.map(item => key === 'source' ? item.source : item[key]).filter(Boolean))];
+  return `<option value="">All ${label}</option>${values.map(value => `<option value="${escapeHtml(value)}"${filters[key] === value ? ' selected' : ''}>${escapeHtml(key === 'source' ? sourceLabel(value) : value)}</option>`).join('')}`;
+}
+function filterHtml(items) {
+  return `<div class="filter-bar" aria-label="Inbox filters">
+    <label>Status <select data-filter="status">${optionsFor(items, 'status', 'statuses')}</select></label>
+    <label>Source <select data-filter="source">${optionsFor(items, 'source', 'sources')}</select></label>
+    <label>Job <select data-filter="job">${optionsFor(items, 'job', 'jobs')}</select></label>
+    <label>Document type <select data-filter="type">${optionsFor(items, 'type', 'document types')}</select></label>
+  </div>`;
+}
+function reviewHtml(items) {
+  if (queueError) return '<h2>Review items</h2><p class="model-error">The review queue is malformed and was left unchanged.</p>';
+  if (!items.length) return '<h2>Review items</h2><p>No review items match these filters.</p>';
+  return `<h2>Review items</h2>${items.map(({ item }) => `<div class="queue-item" data-item-id="${escapeHtml(item.itemId)}">
+    <div class="queue-agent-tag">${escapeHtml(sourceLabel(item.agentId))}</div>
+    <p>${escapeHtml(item.summary)}</p>
+    ${item.decision ? `<span class="badge badge-${escapeHtml(item.decision)}">${escapeHtml(item.decision)}</span>` : `<button data-approve="${escapeHtml(item.itemId)}">Approve</button> <button data-reject="${escapeHtml(item.itemId)}">Reject</button>`}
+  </div>`).join('')}`;
+}
+function fieldHtml(items) {
+  if (fieldQueueError) return '<h2>FieldSnap paperwork</h2><p class="model-error">The FieldSnap queue is malformed and was left unchanged.</p>';
+  const storageNote = fieldStorageError ? `<p class="model-error">${escapeHtml(fieldStorageError)} Showing available queue information only.</p>` : '';
+  if (!items.length) return `<h2>FieldSnap paperwork</h2>${storageNote}<p>No FieldSnap paperwork matches these filters.</p>`;
+  return `<h2>FieldSnap paperwork</h2>${storageNote}${items.map(({ doc }) => {
+    const { index, snap, blob } = doc;
+    let url = null;
+    try { if (blob instanceof Blob) url = URL.createObjectURL(blob); } catch { url = null; }
+    if (url) objectUrls.push(url);
+    const thumbnail = url ? `<img class="field-thumb" src="${url}" alt="FieldSnap image for ${escapeHtml(snap?.job_hint || index.job || 'an unspecified job')}">` : '<div class="thumbnail-unavailable">Original unavailable</div>';
+    const job = snap?.job_hint || index.job || 'No job specified';
+    const amount = snap?.amount_hint || index.amount_hint || '—';
+    const captured = snap?.captured_at || index.timestamp || 'Capture time unavailable';
+    const status = snap?.status || index.status || 'needs_review';
+    const type = snap?.snap_type || 'Unknown';
+    return `<div class="queue-item field-row"><div>${thumbnail}</div><div>
+      <div class="queue-agent-tag">FieldSnap</div>
+      <p><strong>${escapeHtml(job)}</strong><br><small>Source: FieldSnap · Type: ${escapeHtml(type)} · Captured: ${escapeHtml(captured)}</small><br><small>Amount hint: ${escapeHtml(amount)} · Proposed filing: ${escapeHtml(proposalText(snap?.proposed_filing))}</small><br><span class="badge">${escapeHtml(status)}</span></p>
+      <details><summary>View Details</summary><dl><dt>Job / project</dt><dd>${escapeHtml(job)}</dd><dt>Amount hint</dt><dd>${escapeHtml(amount)}</dd><dt>Notes</dt><dd>${escapeHtml(snap?.notes || '—')}</dd><dt>Snap type</dt><dd>${escapeHtml(type)}</dd><dt>GPS</dt><dd>${escapeHtml(gpsText(snap?.gps))}</dd><dt>Captured</dt><dd>${escapeHtml(captured)}</dd><dt>Status</dt><dd>${escapeHtml(status)}</dd></dl></details>
+    </div></div>`;
+  }).join('')}`;
+}
+function bindInboxEvents(el) {
+  el.querySelectorAll('[data-filter]').forEach(select => select.addEventListener('change', () => { filters[select.dataset.filter] = select.value; renderQueue(); }));
+  el.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
+  el.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
+  el.querySelectorAll('.field-thumb').forEach(img => img.addEventListener('error', () => { img.replaceWith(Object.assign(document.createElement('div'), { className: 'thumbnail-unavailable', textContent: 'Preview unavailable' })); }));
   const clearBtn = el.querySelector('#clearQueueBtn');
   if (clearBtn) clearBtn.addEventListener('click', clearQueue);
 }
-
+async function renderQueue() {
+  const thisRender = ++renderNumber;
+  revokeObjectUrls();
+  queue = loadQueue();
+  const indexItems = loadFieldDocsQueue();
+  fieldDocs = await enrichFieldDocs(indexItems);
+  if (thisRender !== renderNumber) return;
+  const allItems = unifiedItems();
+  const visible = allItems.filter(matchesFilters);
+  const el = document.getElementById('queue');
+  el.innerHTML = `<h2>Unified Inbox</h2><button id="clearQueueBtn">Clear Review Queue</button>${filterHtml(allItems)}${reviewHtml(visible.filter(item => item.kind === 'review'))}${fieldHtml(visible.filter(item => item.kind === 'field'))}`;
+  bindInboxEvents(el);
+}
 function clearQueue() {
   queue = [];
   localStorage.removeItem(QUEUE_KEY);
   renderQueue();
 }
-
 function decide(itemId, decision) {
   const item = queue.find(q => q.itemId === itemId);
   if (!item) return;
@@ -97,18 +242,15 @@ function decide(itemId, decision) {
   const iframe = document.querySelector(`iframe[data-agent="${item.agentId}"]`);
   if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision }, '*');
 }
-
 window.addEventListener('message', e => {
   if (!e.data || e.data.type !== 'swarm-flag') return;
   const { agentId, itemId, summary } = e.data;
+  queue = loadQueue();
   let item = queue.find(q => q.itemId === itemId);
   if (!item) {
     item = { itemId, agentId, summary, decision: null };
     queue.push(item);
   } else {
-    // Item IDs are positional (e.g. payroll-3); if the underlying data was
-    // reloaded, the same ID can now describe a different row. Always refresh
-    // the displayed summary so stale text can't linger.
     item.summary = summary;
     if (item.decision) {
       const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
@@ -118,7 +260,10 @@ window.addEventListener('message', e => {
   saveQueue(queue);
   renderQueue();
 });
-
+window.addEventListener('storage', e => {
+  if (e.key === FIELD_DOCS_QUEUE_KEY || e.key === QUEUE_KEY) renderQueue();
+});
+window.addEventListener('beforeunload', revokeObjectUrls);
 renderQueue();
 </script>
 </body>

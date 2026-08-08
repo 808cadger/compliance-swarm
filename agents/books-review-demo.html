@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Books Review Agent</title>
+<title>Books Review · SnapSuite</title>
 <style>
 :root { color-scheme: light dark; }
 body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 960px; margin-inline: auto; line-height: 1.5; }
@@ -28,7 +28,7 @@ select { padding: 0.3rem; margin-inline-end: 1rem; }
 </style>
 </head>
 <body>
-<h1>Books Review Agent</h1>
+<h1>Books Review</h1>
 <div class="disclaimer">Categorization suggestions are a starting point, not a bookkeeping or tax determination. Review before posting to your ledger.</div>
 <div id="settings"></div>
 <div>
@@ -40,6 +40,11 @@ select { padding: 0.3rem; margin-inline-end: 1rem; }
   <button id="loadBtn">Load Transactions</button>
 </div>
 <div id="table-container"></div>
+<section>
+  <h2>Field Capture intake</h2>
+  <p class="disclaimer">Field captures are review-only. Image analysis is unavailable here because images remain on-device and are never uploaded. Any vendor, date, amount, or category suggestion must be made and approved by a human.</p>
+  <div id="field-docs-container"></div>
+</section>
 
 <script type="module">
 import {
@@ -125,6 +130,34 @@ function parseTxnCSV(text) {
 let currentTxns = SAMPLE_TRANSACTIONS;
 let currentCoA = [];
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function renderFieldDocuments() {
+  const container = document.getElementById('field-docs-container');
+  let items;
+  try {
+    const raw = localStorage.getItem('books_review_queue');
+    items = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(items)) throw new Error('not an array');
+  } catch (err) {
+    container.innerHTML = '<p class="model-error">Field Capture queue is malformed and was left unchanged.</p>';
+    return;
+  }
+  if (!items.length) {
+    container.innerHTML = '<p>No field captures have been sent for review.</p>';
+    return;
+  }
+  container.innerHTML = items.map(item => `
+    <div class="explanation">
+      <strong>Field Capture</strong> <span class="badge">needs_review</span><br>
+      Job: ${escapeHtml(item.job)}${item.amount_hint ? ` · Amount hint: ${escapeHtml(item.amount_hint)}` : ''}<br>
+      Captured: ${escapeHtml(item.timestamp)} · ${escapeHtml(item.filename || item.image_ref || 'on-device image')}<br>
+      <span class="rate-note">Image reference received. No OCR, auto-categorization, approval, posting, export, or execution is available from this intake.</span>
+    </div>`).join('');
+}
+
 async function render() {
   const modelPolicy = await loadModelPolicy();
   renderSettingsPanel(document.getElementById('settings'), modelPolicy);
@@ -189,6 +222,7 @@ async function render() {
       notifyParentIfEmbedded(AGENT_ID, { id: `books-${i}`, summary: `Uncategorized: ${txn.description} ($${txn.amount.toFixed(2)})` });
     }
   });
+  renderFieldDocuments();
 }
 
 document.getElementById('coaSelect').addEventListener('change', render);
@@ -201,6 +235,10 @@ document.getElementById('loadBtn').addEventListener('click', () => {
 listenForDecisions((itemId, decision) => {
   const el = document.querySelector(`[data-badge-for="${itemId}"]`);
   if (el) el.innerHTML = `<span class="badge badge-${decision}">${decision}</span>`;
+});
+
+window.addEventListener('storage', e => {
+  if (e.key === 'books_review_queue') renderFieldDocuments();
 });
 
 render().catch(err => {
