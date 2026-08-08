@@ -23,6 +23,13 @@ video { display: block; width: min(100%, 480px); max-height: 360px; background: 
 .details { margin-block-start: .65rem; font-size: .9rem; } .details dl { margin: .35rem 0; } .details dt { font-weight: 600; } .details dd { margin-inline-start: 0; white-space: pre-wrap; }
 .shelf-picker { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
 .shelf-picker > div { flex: 1; min-width: 200px; }
+dialog#ownerDialog { border: 1px solid #8886; border-radius: 8px; padding: 1.25rem; max-width: min(90vw, 640px); max-height: 80vh; overflow-y: auto; }
+dialog#ownerDialog::backdrop { background: rgba(0,0,0,.4); }
+.owner-profile { border: 1px solid #8886; border-radius: 6px; padding: .75rem 1rem; margin-block-end: 1rem; }
+.owner-profile legend { font-weight: 600; padding-inline: .35rem; }
+.owner-save-status { font-size: .8rem; }
+table.owner-items { width: 100%; border-collapse: collapse; margin-block-start: .5rem; font-size: .85rem; }
+table.owner-items th, table.owner-items td { text-align: left; padding: .25rem .4rem; border-bottom: 1px solid #8884; }
 </style>
 </head>
 <body>
@@ -32,6 +39,11 @@ video { display: block; width: min(100%, 480px); max-height: 360px; background: 
 <div id="settings"></div>
 <p id="analysis-status" class="notice"></p>
 <button id="ownerOptionsBtn" type="button">Owner Options</button>
+<dialog id="ownerDialog">
+  <h2>Owner Options &mdash; Shelf Profiles</h2>
+  <div id="ownerProfileList"></div>
+  <button id="ownerCloseBtn" type="button">Close</button>
+</dialog>
 <section class="capture">
   <div class="shelf-picker">
     <div><label>Select a shelf <select id="shelfSelect"><option value="">Loading shelves&hellip;</option></select></label></div>
@@ -232,6 +244,39 @@ async function init() {
   }
   renderShelfSelect(); renderShelfStatus(); await renderSnapshots(); startCamera();
 }
+function ownerProfileHtml(profile) {
+  return `<fieldset class="owner-profile" data-owner-profile="${escapeHtml(profile.id)}">
+    <legend>${escapeHtml(profile.id)}</legend>
+    <label>Name <input type="text" data-field="name" value="${escapeHtml(profile.name)}"></label>
+    <label>Location <input type="text" data-field="location" value="${escapeHtml(profile.location)}"></label>
+    <label>Layout type <select data-field="layout_type">${LAYOUT_TYPES.map(t => `<option value="${t}"${profile.layout_type === t ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+    <button type="button" data-owner-save="${escapeHtml(profile.id)}">Save</button>
+    <p class="owner-save-status" data-owner-status="${escapeHtml(profile.id)}"></p>
+    <details><summary>Items (${profile.items.length}) &mdash; read-only, edit in a later stage</summary><table class="owner-items"><thead><tr><th>Slot</th><th>SKU</th><th>Name</th><th>Unit</th><th>Min</th><th>Target</th><th>Reorder</th><th>Critical</th></tr></thead><tbody>${profile.items.map(item => `<tr><td>${escapeHtml(item.slot)}</td><td>${escapeHtml(item.sku)}</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.min_qty}</td><td>${item.target_qty}</td><td>${item.reorder_qty}</td><td>${item.critical ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></details>
+  </fieldset>`;
+}
+function renderOwnerDialog() {
+  $('ownerProfileList').innerHTML = profiles.map(ownerProfileHtml).join('') || '<p>No shelf profiles yet.</p>';
+  $('ownerProfileList').querySelectorAll('[data-owner-save]').forEach(btn => btn.addEventListener('click', () => saveOwnerProfile(btn.dataset.ownerSave)));
+}
+async function saveOwnerProfile(id) {
+  const fieldset = $('ownerProfileList').querySelector(`[data-owner-profile="${CSS.escape(id)}"]`);
+  const profile = profiles.find(p => p.id === id);
+  if (!fieldset || !profile) return;
+  profile.name = fieldset.querySelector('[data-field="name"]').value.trim() || profile.name;
+  profile.location = fieldset.querySelector('[data-field="location"]').value.trim();
+  profile.layout_type = fieldset.querySelector('[data-field="layout_type"]').value;
+  const status = fieldset.querySelector('[data-owner-status]');
+  try {
+    const tx = db.transaction(PROFILE_STORE, 'readwrite');
+    tx.objectStore(PROFILE_STORE).put(profile);
+    await complete(tx, 'Could not save this shelf profile.');
+    status.textContent = 'Saved.'; status.classList.remove('model-error');
+    renderShelfSelect(); renderShelfStatus();
+  } catch (err) { status.textContent = err.message; status.classList.add('model-error'); }
+}
+$('ownerOptionsBtn').addEventListener('click', () => { renderOwnerDialog(); $('ownerDialog').showModal(); });
+$('ownerCloseBtn').addEventListener('click', () => $('ownerDialog').close());
 $('shelfSelect').addEventListener('change', renderShelfStatus);
 $('shelfIdInput').addEventListener('input', renderShelfStatus);
 $('capture-btn').addEventListener('click', snap);
