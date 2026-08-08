@@ -87,21 +87,26 @@ const LANES = {
     unavailableMessage: 'FieldSnap detail storage is unavailable on this device.',
     detailKey: index => index.id,
     rowFields(detail, index) {
+      const job = detail?.job_hint || index.job || 'No job specified';
+      const type = detail?.snap_type || 'Unknown';
+      const captured = detail?.captured_at || index.timestamp || 'Capture time unavailable';
+      const amount = detail?.amount_hint || index.amount_hint || '—';
+      const status = detail?.status || index.status || 'needs_review';
       return {
-        title: detail?.job_hint || index.job || 'No job specified',
-        sourceLine: `Source: FieldSnap · Type: ${detail?.snap_type || 'Unknown'} · Captured: ${detail?.captured_at || index.timestamp || 'Capture time unavailable'}`,
-        detailLine: `Amount hint: ${detail?.amount_hint || index.amount_hint || '—'} · Proposed filing: ${proposalText(detail?.proposed_filing)}`,
-        status: detail?.status || index.status || 'needs_review',
+        title: job,
+        sourceLine: `Source: FieldSnap · Type: ${type} · Captured: ${captured}`,
+        detailLine: `Amount hint: ${amount} · Proposed filing: ${proposalText(detail?.proposed_filing)}`,
+        status,
         job: detail?.job_hint || index.job || '',
         type: detail?.snap_type || '',
         detailsRows: detail ? [
-          ['Job / project', detail.job_hint],
-          ['Amount hint', detail.amount_hint || '—'],
+          ['Job / project', job],
+          ['Amount hint', amount],
           ['Notes', detail.notes || '—'],
-          ['Snap type', detail.snap_type],
+          ['Snap type', type],
           ['GPS', gpsText(detail.gps)],
-          ['Captured', detail.captured_at],
-          ['Status', detail.status]
+          ['Captured', captured],
+          ['Status', status]
         ] : []
       };
     }
