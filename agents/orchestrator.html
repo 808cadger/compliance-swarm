@@ -85,6 +85,7 @@ const LANES = {
     label: 'FieldSnap',
     heading: 'FieldSnap paperwork',
     unavailableMessage: 'FieldSnap detail storage is unavailable on this device.',
+    detailKey: index => index.id,
     rowFields(detail, index) {
       return {
         title: detail?.job_hint || index.job || 'No job specified',
@@ -112,6 +113,7 @@ const LANES = {
     label: 'ShelfSnap',
     heading: 'ShelfSnap paperwork',
     unavailableMessage: 'ShelfSnap detail storage is unavailable on this device.',
+    detailKey: index => index.snapshot_id,
     rowFields(detail, index) {
       const shelfName = index.shelf_name || detail?.shelf_id || 'Unspecified shelf';
       return {
@@ -201,8 +203,8 @@ async function enrichLaneDocs(lane, indexItems) {
     if (!db.objectStoreNames.contains(laneConfig.detailStore) || !db.objectStoreNames.contains(laneConfig.blobStore)) throw new Error(laneConfig.unavailableMessage);
     return await Promise.all(indexItems.map(async index => {
       const tx = db.transaction([laneConfig.detailStore, laneConfig.blobStore], 'readonly');
-      const detail = await idbRequest(tx.objectStore(laneConfig.detailStore).get(index.id));
-      const blobEntry = await idbRequest(tx.objectStore(laneConfig.blobStore).get(index.id));
+      const detail = await idbRequest(tx.objectStore(laneConfig.detailStore).get(laneConfig.detailKey(index)));
+      const blobEntry = await idbRequest(tx.objectStore(laneConfig.blobStore).get(laneConfig.detailKey(index)));
       return { index, detail: detail || null, blob: blobEntry?.blob || null };
     }));
   } catch (err) {
