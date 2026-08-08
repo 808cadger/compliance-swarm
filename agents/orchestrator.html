@@ -49,6 +49,7 @@ button { cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 4px; border: 1p
   <button data-tab="books">Books</button>
   <button data-tab="contract">Contract</button>
   <button data-tab="fieldsnap">FieldSnap</button>
+  <button data-tab="shelfsnap">ShelfSnap</button>
 </div>
 <div class="workspace">
   <div class="agent-panes">
@@ -56,6 +57,7 @@ button { cursor: pointer; padding: 0.3rem 0.6rem; border-radius: 4px; border: 1p
     <iframe data-agent="books" src="books-review-demo.html" class="agent-frame"></iframe>
     <iframe data-agent="contract" src="contract-review-demo.html" class="agent-frame"></iframe>
     <iframe data-agent="fieldsnap" src="field-capture-demo.html" class="agent-frame"></iframe>
+    <iframe data-agent="shelfsnap" src="shelf-snap-demo.html" class="agent-frame"></iframe>
   </div>
   <aside id="queue"></aside>
 </div>
@@ -74,16 +76,70 @@ document.getElementById('snapPaperworkBtn').addEventListener('click', () => acti
 </script>
 <script>
 const QUEUE_KEY = 'compliance-swarm-queue';
-const FIELD_DOCS_QUEUE_KEY = 'field_docs_queue';
 const SNAP_DB_NAME = 'snapsuite_local';
-const SNAP_STORE = 'snaps';
-const BLOB_STORE = 'snap_blobs';
+const LANES = {
+  fieldsnap: {
+    queueKey: 'field_docs_queue',
+    detailStore: 'snaps',
+    blobStore: 'snap_blobs',
+    label: 'FieldSnap',
+    heading: 'FieldSnap paperwork',
+    unavailableMessage: 'FieldSnap detail storage is unavailable on this device.',
+    rowFields(detail, index) {
+      return {
+        title: detail?.job_hint || index.job || 'No job specified',
+        sourceLine: `Source: FieldSnap · Type: ${detail?.snap_type || 'Unknown'} · Captured: ${detail?.captured_at || index.timestamp || 'Capture time unavailable'}`,
+        detailLine: `Amount hint: ${detail?.amount_hint || index.amount_hint || '—'} · Proposed filing: ${proposalText(detail?.proposed_filing)}`,
+        status: detail?.status || index.status || 'needs_review',
+        job: detail?.job_hint || index.job || '',
+        type: detail?.snap_type || '',
+        detailsRows: detail ? [
+          ['Job / project', detail.job_hint],
+          ['Amount hint', detail.amount_hint || '—'],
+          ['Notes', detail.notes || '—'],
+          ['Snap type', detail.snap_type],
+          ['GPS', gpsText(detail.gps)],
+          ['Captured', detail.captured_at],
+          ['Status', detail.status]
+        ] : []
+      };
+    }
+  },
+  shelfsnap: {
+    queueKey: 'shelf_snap_queue',
+    detailStore: 'shelf_snapshots',
+    blobStore: 'shelf_snapshot_blobs',
+    label: 'ShelfSnap',
+    heading: 'ShelfSnap paperwork',
+    unavailableMessage: 'ShelfSnap detail storage is unavailable on this device.',
+    rowFields(detail, index) {
+      const shelfName = index.shelf_name || detail?.shelf_id || 'Unspecified shelf';
+      return {
+        title: shelfName,
+        sourceLine: `Source: ShelfSnap · Captured: ${detail?.captured_at || index.created_at || 'Capture time unavailable'}`,
+        detailLine: `Location: ${detail?.location_hint || '—'} · Detection: ${detail?.detection_status || 'pending'}`,
+        status: detail?.status || index.status || 'needs_review',
+        job: '',
+        type: detail?.layout_type || '',
+        detailsRows: detail ? [
+          ['Shelf', detail.shelf_id],
+          ['Location', detail.location_hint || '—'],
+          ['Layout type', detail.layout_type || '—'],
+          ['Detection status', detail.detection_status],
+          ['Notes', detail.notes || '—'],
+          ['Captured', detail.captured_at],
+          ['Status', detail.status]
+        ] : []
+      };
+    }
+  }
+};
 
 let queue = [];
 let queueError = false;
-let fieldQueueError = false;
-let fieldStorageError = '';
-let fieldDocs = [];
+let laneErrors = { fieldsnap: false, shelfsnap: false };
+let laneStorageErrors = { fieldsnap: '', shelfsnap: '' };
+let laneDocs = { fieldsnap: [], shelfsnap: [] };
 let objectUrls = [];
 let renderNumber = 0;
 const filters = { status: '', source: '', job: '', type: '' };
@@ -98,21 +154,21 @@ function loadQueue() {
   } catch (e) { queueError = true; return []; }
 }
 function saveQueue(items) { localStorage.setItem(QUEUE_KEY, JSON.stringify(items)); }
-function loadFieldDocsQueue() {
+function loadLaneQueue(lane) {
   try {
-    const raw = localStorage.getItem(FIELD_DOCS_QUEUE_KEY);
+    const raw = localStorage.getItem(LANES[lane].queueKey);
     const value = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(value)) throw new Error('not an array');
-    fieldQueueError = false;
+    laneErrors[lane] = false;
     return value.filter(item => item && typeof item === 'object');
-  } catch (e) { fieldQueueError = true; return []; }
+  } catch (e) { laneErrors[lane] = true; return []; }
 }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 function revokeObjectUrls() { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; }
 function sourceLabel(source) {
-  return ({ payroll: 'Payroll', books: 'Books', contract: 'Contract', fieldsnap: 'FieldSnap' })[source] || 'Review item';
+  return ({ payroll: 'Payroll', books: 'Books', contract: 'Contract', fieldsnap: 'FieldSnap', shelfsnap: 'ShelfSnap' })[source] || 'Review item';
 }
 function proposalText(proposal) {
   if (!proposal) return 'No proposal yet';
@@ -131,32 +187,36 @@ function openSnapDb() { return new Promise((resolve, reject) => {
   if (!('indexedDB' in window)) return reject(new Error('IndexedDB is not supported by this browser.'));
   const request = indexedDB.open(SNAP_DB_NAME);
   request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(new Error('Could not open on-device FieldSnap storage.'));
+  request.onerror = () => reject(new Error('Could not open on-device SnapSuite storage.'));
 }); }
 function idbRequest(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error('IndexedDB operation failed.')); }); }
-async function enrichFieldDocs(indexItems) {
-  fieldStorageError = '';
+async function enrichLaneDocs(lane, indexItems) {
+  const laneConfig = LANES[lane];
+  laneStorageErrors[lane] = '';
   if (!indexItems.length) return [];
   let db;
   try { db = await openSnapDb(); }
-  catch (err) { fieldStorageError = err.message; return indexItems.map(index => ({ index, snap: null, blob: null })); }
+  catch (err) { laneStorageErrors[lane] = err.message; return indexItems.map(index => ({ index, detail: null, blob: null })); }
   try {
-    if (!db.objectStoreNames.contains(SNAP_STORE) || !db.objectStoreNames.contains(BLOB_STORE)) throw new Error('FieldSnap detail storage is unavailable on this device.');
+    if (!db.objectStoreNames.contains(laneConfig.detailStore) || !db.objectStoreNames.contains(laneConfig.blobStore)) throw new Error(laneConfig.unavailableMessage);
     return await Promise.all(indexItems.map(async index => {
-      const tx = db.transaction([SNAP_STORE, BLOB_STORE], 'readonly');
-      const snap = await idbRequest(tx.objectStore(SNAP_STORE).get(index.id));
-      const blobEntry = await idbRequest(tx.objectStore(BLOB_STORE).get(index.id));
-      return { index, snap: snap || null, blob: blobEntry?.blob || null };
+      const tx = db.transaction([laneConfig.detailStore, laneConfig.blobStore], 'readonly');
+      const detail = await idbRequest(tx.objectStore(laneConfig.detailStore).get(index.id));
+      const blobEntry = await idbRequest(tx.objectStore(laneConfig.blobStore).get(index.id));
+      return { index, detail: detail || null, blob: blobEntry?.blob || null };
     }));
   } catch (err) {
-    fieldStorageError = err.message;
-    return indexItems.map(index => ({ index, snap: null, blob: null }));
+    laneStorageErrors[lane] = err.message;
+    return indexItems.map(index => ({ index, detail: null, blob: null }));
   } finally { db.close(); }
 }
 function unifiedItems() {
   const reviewItems = queue.map(item => ({ kind: 'review', source: item.agentId || '', status: item.decision || 'pending', job: '', type: '', item }));
-  const snapItems = fieldDocs.map(doc => ({ kind: 'field', source: 'fieldsnap', status: doc.snap?.status || doc.index.status || 'needs_review', job: doc.snap?.job_hint || doc.index.job || '', type: doc.snap?.snap_type || '', doc }));
-  return [...reviewItems, ...snapItems];
+  const laneItems = Object.keys(LANES).flatMap(lane => laneDocs[lane].map(doc => {
+    const fields = LANES[lane].rowFields(doc.detail, doc.index);
+    return { kind: 'lane', lane, source: lane, status: fields.status, job: fields.job, type: fields.type, doc, fields };
+  }));
+  return [...reviewItems, ...laneItems];
 }
 function matchesFilters(item) {
   return (!filters.status || item.status === filters.status)
@@ -185,25 +245,21 @@ function reviewHtml(items) {
     ${item.decision ? `<span class="badge badge-${escapeHtml(item.decision)}">${escapeHtml(item.decision)}</span>` : `<button data-approve="${escapeHtml(item.itemId)}">Approve</button> <button data-reject="${escapeHtml(item.itemId)}">Reject</button>`}
   </div>`).join('')}`;
 }
-function fieldHtml(items) {
-  if (fieldQueueError) return '<h2>FieldSnap paperwork</h2><p class="model-error">The FieldSnap queue is malformed and was left unchanged.</p>';
-  const storageNote = fieldStorageError ? `<p class="model-error">${escapeHtml(fieldStorageError)} Showing available queue information only.</p>` : '';
-  if (!items.length) return `<h2>FieldSnap paperwork</h2>${storageNote}<p>No FieldSnap paperwork matches these filters.</p>`;
-  return `<h2>FieldSnap paperwork</h2>${storageNote}${items.map(({ doc }) => {
-    const { index, snap, blob } = doc;
+function laneHtml(lane, items) {
+  const laneConfig = LANES[lane];
+  if (laneErrors[lane]) return `<h2>${laneConfig.heading}</h2><p class="model-error">The ${laneConfig.label} queue is malformed and was left unchanged.</p>`;
+  const storageNote = laneStorageErrors[lane] ? `<p class="model-error">${escapeHtml(laneStorageErrors[lane])} Showing available queue information only.</p>` : '';
+  if (!items.length) return `<h2>${laneConfig.heading}</h2>${storageNote}<p>No ${laneConfig.label} paperwork matches these filters.</p>`;
+  return `<h2>${laneConfig.heading}</h2>${storageNote}${items.map(({ doc, fields }) => {
+    const { blob } = doc;
     let url = null;
     try { if (blob instanceof Blob) url = URL.createObjectURL(blob); } catch { url = null; }
     if (url) objectUrls.push(url);
-    const thumbnail = url ? `<img class="field-thumb" src="${url}" alt="FieldSnap image for ${escapeHtml(snap?.job_hint || index.job || 'an unspecified job')}">` : '<div class="thumbnail-unavailable">Original unavailable</div>';
-    const job = snap?.job_hint || index.job || 'No job specified';
-    const amount = snap?.amount_hint || index.amount_hint || '—';
-    const captured = snap?.captured_at || index.timestamp || 'Capture time unavailable';
-    const status = snap?.status || index.status || 'needs_review';
-    const type = snap?.snap_type || 'Unknown';
+    const thumbnail = url ? `<img class="field-thumb" src="${url}" alt="${escapeHtml(laneConfig.label)} image for ${escapeHtml(fields.title)}">` : '<div class="thumbnail-unavailable">Original unavailable</div>';
     return `<div class="queue-item field-row"><div>${thumbnail}</div><div>
-      <div class="queue-agent-tag">FieldSnap</div>
-      <p><strong>${escapeHtml(job)}</strong><br><small>Source: FieldSnap · Type: ${escapeHtml(type)} · Captured: ${escapeHtml(captured)}</small><br><small>Amount hint: ${escapeHtml(amount)} · Proposed filing: ${escapeHtml(proposalText(snap?.proposed_filing))}</small><br><span class="badge">${escapeHtml(status)}</span></p>
-      <details><summary>View Details</summary><dl><dt>Job / project</dt><dd>${escapeHtml(job)}</dd><dt>Amount hint</dt><dd>${escapeHtml(amount)}</dd><dt>Notes</dt><dd>${escapeHtml(snap?.notes || '—')}</dd><dt>Snap type</dt><dd>${escapeHtml(type)}</dd><dt>GPS</dt><dd>${escapeHtml(gpsText(snap?.gps))}</dd><dt>Captured</dt><dd>${escapeHtml(captured)}</dd><dt>Status</dt><dd>${escapeHtml(status)}</dd></dl></details>
+      <div class="queue-agent-tag">${escapeHtml(laneConfig.label)}</div>
+      <p><strong>${escapeHtml(fields.title)}</strong><br><small>${escapeHtml(fields.sourceLine)}</small><br><small>${escapeHtml(fields.detailLine)}</small><br><span class="badge">${escapeHtml(fields.status)}</span></p>
+      <details><summary>View Details</summary><dl>${fields.detailsRows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v ?? '—')}</dd>`).join('')}</dl></details>
     </div></div>`;
   }).join('')}`;
 }
@@ -219,13 +275,15 @@ async function renderQueue() {
   const thisRender = ++renderNumber;
   revokeObjectUrls();
   queue = loadQueue();
-  const indexItems = loadFieldDocsQueue();
-  fieldDocs = await enrichFieldDocs(indexItems);
+  for (const lane of Object.keys(LANES)) {
+    const indexItems = loadLaneQueue(lane);
+    laneDocs[lane] = await enrichLaneDocs(lane, indexItems);
+  }
   if (thisRender !== renderNumber) return;
   const allItems = unifiedItems();
   const visible = allItems.filter(matchesFilters);
   const el = document.getElementById('queue');
-  el.innerHTML = `<h2>Unified Inbox</h2><button id="clearQueueBtn">Clear Review Queue</button>${filterHtml(allItems)}${reviewHtml(visible.filter(item => item.kind === 'review'))}${fieldHtml(visible.filter(item => item.kind === 'field'))}`;
+  el.innerHTML = `<h2>Unified Inbox</h2><button id="clearQueueBtn">Clear Review Queue</button>${filterHtml(allItems)}${reviewHtml(visible.filter(item => item.kind === 'review'))}${Object.keys(LANES).map(lane => laneHtml(lane, visible.filter(item => item.kind === 'lane' && item.lane === lane))).join('')}`;
   bindInboxEvents(el);
 }
 function clearQueue() {
@@ -261,7 +319,7 @@ window.addEventListener('message', e => {
   renderQueue();
 });
 window.addEventListener('storage', e => {
-  if (e.key === FIELD_DOCS_QUEUE_KEY || e.key === QUEUE_KEY) renderQueue();
+  if (e.key === LANES.fieldsnap.queueKey || e.key === LANES.shelfsnap.queueKey || e.key === QUEUE_KEY) renderQueue();
 });
 window.addEventListener('beforeunload', revokeObjectUrls);
 renderQueue();
