@@ -15,7 +15,9 @@ agents/
 - contract-review-demo.html — Standalone contract review agent
 - books-review-demo.html — Standalone bookkeeping/categorization agent
 - payroll-review-demo.html — Standalone payroll worksheet agent
-- orchestrator.html — All three wired into one app with a shared approval queue
+- field-capture-demo.html (FieldSnap) — On-device photo capture of receipts/invoices/tags/job-progress/safety forms, handed off as a needs_review item; never uploads images
+- shelf-snap-demo.html (ShelfSnap) — Owner-configured shelf profiles plus worker-driven shelf photo capture, handed off as a needs_review item; never uploads images
+- orchestrator.html (OfficeSnap) — All agents wired into one app with a Unified Inbox: a shared approval queue for Payroll/Books/Contract, plus separate FieldSnap and ShelfSnap paperwork lanes
 
 templates/
 - chart_of_accounts/ — CoA templates matching the books agent's category taxonomy
