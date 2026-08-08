@@ -9,6 +9,7 @@
   "agents": {
     "books_review": {},
     "contract_review": {},
+    "shelf_review": {},
     "payroll_explainer": {
       "provider": "ollama",
       "endpoint": "http://localhost:11434/api/chat",
