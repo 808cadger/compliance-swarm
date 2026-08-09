@@ -1,4 +1,4 @@
-# Compliance Swarm — Config-Driven Model Routing Design
+# Approval-First Business AI — Config-Driven Model Routing Design
 
 Date: 2026-08-07
 Status: Approved

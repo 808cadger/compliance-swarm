@@ -1,4 +1,4 @@
-# Compliance Swarm — Model Policy v2 Design (revision)
+# Approval-First Business AI — Model Policy v2 Design (revision)
 
 Date: 2026-08-07
 Status: Draft (supersedes `2026-08-07-model-config-design.md`)
