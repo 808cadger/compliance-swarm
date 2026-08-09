@@ -1,4 +1,6 @@
-# Compliance-Proof Agent Swarm for Small Business
+# Approval-First Business AI
+
+*Local-first, human-approved AI for business paperwork and review.*
 
 Local-first agents for books, payroll, and contract review — built for small businesses
 that can't afford a back office and shouldn't have to hand their data to a SaaS vendor
