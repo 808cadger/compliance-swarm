@@ -1,0 +1,182 @@
+import {
+  loadSettings,
+  loadModelPolicy,
+  resolveModelConfig,
+  callModel,
+  renderSettingsPanel,
+  renderModelError,
+  renderResultBadge
+} from '../shared/model-client.js';
+import { escapeHtml, notifyParentIfEmbedded, listenForDecisions } from '../shared/agent-common.js';
+
+const AGENT_ID = 'contract';
+const CONFIG_KEY = 'contract_review';
+const CLAUSE_LIBRARY_FILENAME = 'red-flag-clause-library.md';
+
+async function loadClauseLibrary() {
+  const res = await fetch('../templates/contract_clause_library/red-flag-clause-library.md');
+  if (!res.ok) throw new Error(`red-flag-clause-library.md (${res.status})`);
+  const text = await res.text();
+  const sections = text.split(/\n## /).slice(1); // drop title + intro before first ##
+  return sections.map(section => {
+    const lines = section.trim().split('\n');
+    const name = lines[0].trim();
+    const body = lines.slice(1).join('\n');
+    const pattern = (body.match(/Pattern:\s*([\s\S]*?)\nWhy it matters:/) || [])[1] || '';
+    const why = (body.match(/Why it matters:\s*([\s\S]*?)\nFallback ask:/) || [])[1] || '';
+    const fallback = (body.match(/Fallback ask:\s*([\s\S]*?)(\n\n|$)/) || [])[1] || '';
+    return { name, pattern: pattern.trim(), why: why.trim(), fallback: fallback.trim() };
+  }).filter(e => e.name !== 'Add new entries here whenever the contract agent flags a pattern not yet covered above —\nthis file is what actually improves over time, more than the code around it.'.split('\n')[0]);
+}
+
+const SAMPLE_CONTRACT = `SERVICES AGREEMENT
+
+1. INDEMNIFICATION. Contractor shall indemnify and hold harmless Client from any and all claims, damages, and expenses arising from this Agreement, without limitation.
+
+2. TERM AND TERMINATION. Client may terminate this Agreement at any time, without notice. Contractor must provide 45 days written notice to terminate.
+
+3. INTELLECTUAL PROPERTY. All work product, including drafts, concepts, and unused ideas, shall be assigned to Client.
+
+4. PAYMENT. Client shall pay invoices within 60 days. Client may withhold payment at Client's sole discretion pending satisfaction review.
+
+5. GOVERNING LAW. This Agreement is governed by the laws of the state where Client is headquartered, with venue to be determined solely by Client.`;
+
+const MATCH_RULES = [
+  { clauseName: 'Indemnification', test: /indemnif|any and all claims/i },
+  { clauseName: 'Termination', test: /at any time,?\s*without notice/i },
+  { clauseName: 'Intellectual property', test: /unused ideas|all work product/i },
+  { clauseName: 'Payment terms', test: /sole discretion|60 days|90 days/i },
+  { clauseName: 'Governing law \\/ venue', test: /venue to be determined|headquartered/i },
+  { clauseName: 'Non-compete \\/ non-solicit', test: /the united states|any business that could be considered a competitor/i },
+  { clauseName: 'Auto-renewal', test: /auto-?renew|automatically renews?|renews? annually/i },
+];
+
+function findFlaggedClauses(contractText) {
+  const paragraphs = contractText.split(/\n\n+/);
+  const flags = [];
+  paragraphs.forEach((para, i) => {
+    MATCH_RULES.forEach(rule => {
+      if (rule.test.test(para)) {
+        const clauseName = rule.clauseName.replace('\\/', '/');
+        flags.push({ id: `contract-${i}-${clauseName}`, paragraphIndex: i, text: para.trim(), clauseName });
+      }
+    });
+  });
+  // Liability is structurally different: the red flag is the ABSENCE of
+  // limitation-of-liability language anywhere in the contract, not a phrase
+  // that appears when the clause is bad — so it's a whole-document check
+  // rather than a per-paragraph MATCH_RULES entry.
+  const hasLiabilityLanguage = paragraphs.some(p => /limitation of liability|liability[\s\S]{0,80}cap/i.test(p));
+  if (!hasLiabilityLanguage) {
+    flags.push({
+      id: 'contract-liability-absence',
+      paragraphIndex: -1,
+      text: 'No limitation-of-liability language found anywhere in this contract.',
+      clauseName: 'Liability',
+    });
+  }
+  return flags;
+}
+
+let clauseLibrary = [];
+
+function highlightMatch(text, rule) {
+  const match = text.match(rule.test);
+  if (!match) return escapeHtml(text);
+  const before = text.slice(0, match.index);
+  const matched = match[0];
+  const after = text.slice(match.index + matched.length);
+  return `${escapeHtml(before)}<mark>${escapeHtml(matched)}</mark>${escapeHtml(after)}`;
+}
+
+async function scan() {
+  const modelPolicy = await loadModelPolicy();
+  const container = document.getElementById('results');
+  // The keyword/regex first pass (findFlaggedClauses) only needs MATCH_RULES,
+  // not the fetched library, so it must still run and render flags even if
+  // the library fetch below fails. Only the Explain button's extra context
+  // (pattern/why/fallback) depends on the library and should degrade alone.
+  let clauseLibraryError = null;
+  try {
+    clauseLibrary = await loadClauseLibrary();
+  } catch (err) {
+    clauseLibrary = [];
+    clauseLibraryError = err.message;
+  }
+
+  const text = document.getElementById('contractInput').value || SAMPLE_CONTRACT;
+  const flags = findFlaggedClauses(text);
+
+  const libraryErrorBanner = clauseLibraryError
+    ? `<p class="model-error">Could not load the clause reference library: ${clauseLibraryError}. Flags below still use built-in pattern matching; "Explain + suggest redline" context will be unavailable until this loads (verify the file exists and you're serving this over http://, not file://).</p>`
+    : '';
+
+  if (flags.length === 0) {
+    container.innerHTML = libraryErrorBanner + '<p>No known red-flag patterns matched. Not a guarantee the contract is safe — just that nothing in the library matched.</p>';
+    return;
+  }
+
+  container.innerHTML = libraryErrorBanner + flags.map((flag, i) => {
+    const rule = MATCH_RULES.find(r => r.clauseName.replace('\\/', '/') === flag.clauseName);
+    // The Liability absence flag has no source paragraph to highlight — its
+    // text is a synthesized description, not a quoted excerpt.
+    const highlighted = rule ? highlightMatch(flag.text, rule) : escapeHtml(flag.text);
+    return `
+      <div class="flag-row" style="padding: 0.75rem; margin-block: 0.5rem; border-radius: 4px;">
+        <strong>${flag.clauseName}</strong>
+        <p>${highlighted}</p>
+        <button data-explain="${i}">Explain + suggest redline</button>
+        <span data-badge-for="${flag.id}"></span>
+        <div class="explanation" data-explanation-for="${i}"></div>
+        <span data-model-badge-for="${i}"></span>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('[data-explain]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = Number(btn.dataset.explain);
+      const flag = flags[i];
+      const explDiv = container.querySelector(`[data-explanation-for="${i}"]`);
+      const badgeSpan = container.querySelector(`[data-model-badge-for="${i}"]`);
+      if (clauseLibraryError) {
+        explDiv.textContent = 'Clause library context is unavailable (the reference library failed to load), so a detailed redline suggestion can\'t be generated for this flag.';
+        explDiv.classList.add('model-error');
+        return;
+      }
+      const entry = clauseLibrary.find(e => e.name === flag.clauseName) || {};
+      explDiv.classList.remove('model-error');
+      explDiv.textContent = 'Thinking...';
+      if (badgeSpan) badgeSpan.innerHTML = '';
+      const prompt = `Explain this contract clause's risk in plain language (2-3 sentences) and suggest a specific redline, for a small business owner. Clause text: "${flag.text}". Known pattern: ${entry.pattern}. Why it matters: ${entry.why}. Suggested fallback ask: ${entry.fallback}.`;
+      try {
+        const config = resolveModelConfig(CONFIG_KEY, modelPolicy, loadSettings());
+        const result = await callModel(config, [{ role: 'user', content: prompt }]);
+        explDiv.textContent = result.text;
+        if (badgeSpan) badgeSpan.innerHTML = renderResultBadge(result, { templateVersion: CLAUSE_LIBRARY_FILENAME });
+      } catch (err) {
+        renderModelError(explDiv, err);
+      }
+    });
+  });
+
+  flags.forEach(flag => {
+    notifyParentIfEmbedded(AGENT_ID, { id: flag.id, summary: `${flag.clauseName}: ${flag.text.slice(0, 60)}...` });
+  });
+}
+
+document.getElementById('scanBtn').addEventListener('click', scan);
+document.getElementById('contractInput').value = SAMPLE_CONTRACT;
+
+loadModelPolicy()
+  .then(modelPolicy => {
+    renderSettingsPanel(document.getElementById('settings'), modelPolicy);
+    return scan();
+  })
+  .catch(err => {
+    document.body.innerHTML = `<p style="color:#c0392b; padding:2rem;">Configuration error: ${err.message}</p>`;
+  });
+
+listenForDecisions((itemId, decision) => {
+  const el = document.querySelector(`[data-badge-for="${itemId}"]`);
+  if (el) el.innerHTML = `<span class="badge badge-${decision}">${decision}</span>`;
+});
