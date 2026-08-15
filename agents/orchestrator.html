@@ -305,9 +305,10 @@ function decide(itemId, decision) {
   saveQueue(queue);
   renderQueue();
   const iframe = document.querySelector(`iframe[data-agent="${item.agentId}"]`);
-  if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision }, '*');
+  if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision }, window.location.origin);
 }
 window.addEventListener('message', e => {
+  if (e.origin !== window.location.origin) return;
   if (!e.data || e.data.type !== 'swarm-flag') return;
   const { agentId, itemId, summary } = e.data;
   queue = loadQueue();
@@ -319,7 +320,7 @@ window.addEventListener('message', e => {
     item.summary = summary;
     if (item.decision) {
       const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
-      if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, '*');
+      if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, window.location.origin);
     }
   }
   saveQueue(queue);

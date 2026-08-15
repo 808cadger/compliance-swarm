@@ -6,6 +6,7 @@
 
 import { call as callAnthropic } from './providers/anthropic.js';
 import { call as callOllama } from './providers/ollama.js';
+import { escapeHtml } from './agent-common.js';
 
 const SETTINGS_KEY = 'compliance-swarm-settings';
 const MODEL_POLICY_PATH = '../config/model-policy.json';
@@ -186,12 +187,12 @@ export function renderSettingsPanel(container, modelPolicy) {
       ${allowed.includes('anthropic') ? `<label><input type="radio" name="mode" value="force-cloud" ${s.mode === 'force-cloud' ? 'checked' : ''}> Force Cloud (Anthropic)</label>` : ''}
       ${allowed.includes('ollama') ? `<label><input type="radio" name="mode" value="force-local" ${s.mode === 'force-local' ? 'checked' : ''}> Force Local (Ollama)</label>` : ''}
       <div class="cloud-fields" style="${s.mode === 'force-local' ? 'display:none' : ''}">
-        <label>API Key <input type="password" id="apiKeyInput" value="${s.cloud.apiKey}" placeholder="sk-ant-..."></label>
-        <label>Model <input type="text" id="cloudModelInput" value="${s.cloud.model || ''}" placeholder="(repo default)"></label>
+        <label>API Key <input type="password" id="apiKeyInput" value="${escapeHtml(s.cloud.apiKey)}" placeholder="sk-ant-..."></label>
+        <label>Model <input type="text" id="cloudModelInput" value="${escapeHtml(s.cloud.model || '')}" placeholder="(repo default)"></label>
       </div>
       <div class="local-fields" style="${s.mode === 'force-local' ? '' : 'display:none'}">
-        <label>Endpoint <input type="text" id="endpointInput" value="${s.local.endpoint}"></label>
-        <label>Model <input type="text" id="localModelInput" value="${s.local.model || ''}" placeholder="(repo default)"></label>
+        <label>Endpoint <input type="text" id="endpointInput" value="${escapeHtml(s.local.endpoint)}"></label>
+        <label>Model <input type="text" id="localModelInput" value="${escapeHtml(s.local.model || '')}" placeholder="(repo default)"></label>
       </div>
       <p class="settings-note">Stored only in this browser's localStorage. Repo Defaults resolves each agent's provider/model from config/model-policy.json.</p>
     </fieldset>
