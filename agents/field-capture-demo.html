@@ -49,6 +49,7 @@ video { display: block; width: min(100%, 480px); max-height: 360px; background: 
 
 <script type="module">
 import { loadSettings, loadModelPolicy, resolveModelConfig, renderSettingsPanel, renderModelError, renderResultBadge } from '../shared/model-client.js';
+import { escapeHtml } from '../shared/agent-common.js';
 
 const DB_NAME = 'snapsuite_local';
 const DB_VERSION = 2;
@@ -58,7 +59,6 @@ const FIELD_QUEUE_KEY = 'field_docs_queue';
 const BOOKS_QUEUE_KEY = 'books_review_queue';
 let db; let stream = null; let objectUrls = []; let selectedSnapType = 'unknown';
 const $ = id => document.getElementById(id);
-const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[c]);
 function setError(message = '') { $('capture-error').textContent = message; }
 function imageRef(id) { return `snapsuite_local://snap_blobs/${id}`; }
 

@@ -60,6 +60,7 @@ table.owner-items th, table.owner-items td { text-align: left; padding: .25rem .
 
 <script type="module">
 import { loadSettings, loadModelPolicy, resolveModelConfig, renderSettingsPanel, renderModelError, renderResultBadge } from '../shared/model-client.js';
+import { escapeHtml } from '../shared/agent-common.js';
 
 const DB_NAME = 'snapsuite_local';
 const DB_VERSION = 2;
@@ -106,7 +107,6 @@ const STARTER_PROFILES = [
 
 let db; let stream = null; let objectUrls = []; let profiles = []; let currentShelf = null; let cameraStarted = false;
 const $ = id => document.getElementById(id);
-const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[c]);
 function setError(message = '') { $('capture-error').textContent = message; }
 function imageRef(id) { return `snapsuite_local://${SNAPSHOT_BLOB_STORE}/${id}`; }
 

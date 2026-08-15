@@ -1,0 +1,20 @@
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; max-width: 960px; margin-inline: auto; line-height: 1.5; }
+h1 { font-size: 1.4rem; }
+table { width: 100%; border-collapse: collapse; margin-block: 1rem; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #8884; }
+.flag-row { background: rgba(245, 163, 35, 0.1); }
+.flag-row td:first-child { border-left: 3px solid #f5a323; }
+button { cursor: pointer; padding: 0.35rem 0.75rem; border-radius: 4px; border: 1px solid #8886; background: transparent; font: inherit; }
+button:hover { background: rgba(136, 136, 136, 0.15); }
+.settings-panel { border: 1px solid #8886; border-radius: 6px; padding: 0.75rem 1rem; margin-block-end: 1rem; }
+.settings-panel label { display: block; margin-block: 0.35rem; }
+.settings-note { font-size: 0.8rem; opacity: 0.7; margin: 0.35rem 0 0; }
+.model-error { color: #c0392b; font-size: 0.85rem; }
+.disclaimer { font-size: 0.8rem; opacity: 0.75; border-left: 3px solid #8886; padding-inline-start: 0.75rem; margin-block: 1rem; }
+textarea { width: 100%; min-height: 6rem; font-family: inherit; box-sizing: border-box; }
+.explanation { font-size: 0.85rem; margin-block-start: 0.5rem; padding: 0.5rem; background: rgba(136, 136, 136, 0.08); border-radius: 4px; }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; margin-inline-start: 0.5rem; }
+.badge-approved { background: #2ecc7133; color: #1e8449; }
+.badge-rejected { background: #e74c3c33; color: #c0392b; }
+.rate-note { font-size: 0.75rem; opacity: 0.7; }
