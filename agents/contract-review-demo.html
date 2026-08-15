@@ -101,7 +101,12 @@ function findFlaggedClauses(contractText) {
 let clauseLibrary = [];
 
 function highlightMatch(text, rule) {
-  return text.replace(rule.test, m => `<mark>${m}</mark>`);
+  const match = text.match(rule.test);
+  if (!match) return escapeHtml(text);
+  const before = text.slice(0, match.index);
+  const matched = match[0];
+  const after = text.slice(match.index + matched.length);
+  return `${escapeHtml(before)}<mark>${escapeHtml(matched)}</mark>${escapeHtml(after)}`;
 }
 
 async function scan() {
@@ -135,7 +140,7 @@ async function scan() {
     const rule = MATCH_RULES.find(r => r.clauseName.replace('\\/', '/') === flag.clauseName);
     // The Liability absence flag has no source paragraph to highlight — its
     // text is a synthesized description, not a quoted excerpt.
-    const highlighted = rule ? highlightMatch(flag.text, rule) : flag.text;
+    const highlighted = rule ? highlightMatch(flag.text, rule) : escapeHtml(flag.text);
     return `
       <div class="flag-row" style="padding: 0.75rem; margin-block: 0.5rem; border-radius: 4px;">
         <strong>${flag.clauseName}</strong>

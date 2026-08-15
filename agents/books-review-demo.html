@@ -142,8 +142,8 @@ async function render() {
     const itemId = `books-${i}`;
     return `
       <tr class="${isUncategorized ? 'flag-row' : ''}" data-row="${i}">
-        <td>${txn.date}</td>
-        <td>${txn.description}</td>
+        <td>${escapeHtml(txn.date)}</td>
+        <td>${escapeHtml(txn.description)}</td>
         <td>$${txn.amount.toFixed(2)}</td>
         <td>
           ${category ? category : `Uncategorized <button data-suggest="${i}">AI Suggest</button><span data-badge-for="${itemId}"></span>`}

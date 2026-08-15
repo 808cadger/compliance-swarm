@@ -110,7 +110,7 @@ async function render() {
     if (row.parseError) {
       return `
       <tr class="flag-row" data-row="${i}">
-        <td colspan="7">&#9888; Could not parse this row — check your CSV headers (expected Employee, Classification, Hourly Rate (or Rate), Hours Worked (or Hours), State). Raw values: ${row.employee || ''}, ${row.classification || ''}, ${row.state || ''}</td>
+        <td colspan="7">&#9888; Could not parse this row — check your CSV headers (expected Employee, Classification, Hourly Rate (or Rate), Hours Worked (or Hours), State). Raw values: ${escapeHtml(row.employee || '')}, ${escapeHtml(row.classification || '')}, ${escapeHtml(row.state || '')}</td>
       </tr>`;
     }
     const pay = computePay(row);
@@ -119,11 +119,11 @@ async function render() {
     const itemId = `payroll-${i}`;
     return `
       <tr class="${isFlagged ? 'flag-row' : ''}" data-row="${i}">
-        <td>${row.employee}</td>
-        <td>${row.classification}</td>
+        <td>${escapeHtml(row.employee)}</td>
+        <td>${escapeHtml(row.classification)}</td>
         <td>$${row.rate.toFixed(2)}</td>
         <td>${row.hours}</td>
-        <td>${row.state}</td>
+        <td>${escapeHtml(row.state)}</td>
         <td>$${pay.grossPay.toFixed(2)}${pay.otHours > 0 ? ` <span class="rate-note">(incl. ${pay.otHours}h OT)</span>` : ''}</td>
         <td>
           ${isFlagged ? `<div>${flags.map(f => `&#9888; ${f}`).join('<br>')}</div><button data-explain="${i}">Explain</button><div class="explanation" data-explanation-for="${i}"></div><span data-model-badge-for="${i}"></span><span data-badge-for="${itemId}"></span>` : ''}
