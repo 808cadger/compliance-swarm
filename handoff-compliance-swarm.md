@@ -4,7 +4,9 @@ Repo: `github.com/808cadger/compliance-swarm`, branch `main`. Local checkout: `/
 
 ## What shipped
 
-5 commits on `main`, pushed to `origin/main` (2026-08-14/15):
+Pushed to `origin/main` (2026-08-14/15):
+
+**Code changes:**
 
 | Commit | What |
 |---|---|
@@ -12,7 +14,13 @@ Repo: `github.com/808cadger/compliance-swarm`, branch `main`. Local checkout: `/
 | `be7d40c` | Fix XSS in CSV/contract rendering |
 | `81fefda` | Fix XSS in settings panel + lock postMessage origin |
 | `99e0c00` | Extract inline scripts to external files, add CSP to all 6 agent pages |
+
+**Docs:**
+
+| Commit | What |
+|---|---|
 | `ca7bad6` | Add this handoff doc |
+| `3ac447a` | Restructure this doc to lead with results |
 
 The 6 agent pages referenced throughout: `payroll-review-demo`, `books-review-demo`,
 `contract-review-demo`, `field-capture-demo`, `shelf-snap-demo`, `orchestrator` (all under `agents/`).
@@ -70,23 +78,28 @@ fetch templates/config), not just read:
 
 ## Known open items
 
-Carried over from before this session (see `docs/superpowers/specs|plans/*`), not touched here:
+**Pre-existing deferred product work** (see `docs/superpowers/specs|plans/*`), not touched here:
 - Structured findings output shape, a versioned postMessage event envelope, and a provenance record
   shape — explicitly scoped out of model-policy v2.
 - A full custom-mode Settings UI (the `custom` mode exists in `resolveModelConfig` but has no editor).
 - ShelfSnap is Stage 1 of 5 planned stages (no automatic visual detection, no item-catalog editing, no
   reorder/notification logic).
 
-New, surfaced by this session's CSP work:
-- The CSP only restricts `script-src`. Inline `<style>` blocks (small page-specific residuals in
-  Books/Contract) and inline `style="..."` attributes (used throughout for things like
-  `display:none` toggles and error banners) still rely on the browser's default permissive behavior
-  for `style-src` — no `unsafe-inline` is declared because no `style-src` directive exists at all.
-  Locking that down too would need either externalizing those styles or a nonce/hash scheme.
-- `connect-src` is deliberately left unrestricted: Payroll/Books/Contract's "AI Suggest"/"Explain"
-  buttons call `config.endpoint`, which is a user-configurable URL (Anthropic's API, or any Ollama
-  endpoint the user points Settings at). A locked-down `connect-src` would break Force Cloud/Force
-  Local for any endpoint other than same-origin.
+**Security-hardening follow-ups surfaced by this session's CSP work:**
+- The CSP only sets `script-src`. Inline `<style>` blocks (small page-specific residuals in
+  Books/Contract) and inline `style="..."` attributes (used throughout for `display:none` toggles and
+  error banners) have no `style-src` directive at all, so the browser falls back to its default
+  permissive behavior there. Locking that down needs either externalizing those styles or a nonce/hash
+  scheme.
+- No `connect-src` directive exists, so it's **wide open to any origin** — not scoped to `localhost`
+  or known ports. In practice only the local/Ollama endpoint is user-editable via the UI
+  (`endpointInput`, free text, defaults to `http://localhost:11434/api/chat` but accepts anything);
+  the cloud endpoint is fixed to Anthropic's API URL in code and isn't exposed for editing at all.
+  Since the XSS fixes above close off the only route by which an attacker could set this value without
+  the user's knowledge, an open `connect-src` doesn't currently create a script-driven exfil path — the
+  residual risk is a user being *socially engineered* into pasting a malicious local-endpoint URL
+  themselves, at which point their prompt content would go wherever they pointed it. Worth restricting
+  to `'self' http://localhost:* http://127.0.0.1:*` if that residual risk needs closing.
 - No `frame-ancestors` protection (see meta-tag-CSP limitation above) — if this app is ever meant to
   resist being iframed by an unrelated site, that needs a server header, not this meta tag.
 - Every page 404s on `/favicon.ico` in dev (no favicon exists in the repo) — cosmetic, unrelated to
