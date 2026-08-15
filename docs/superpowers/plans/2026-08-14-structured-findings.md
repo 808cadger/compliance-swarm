@@ -17,7 +17,7 @@
   find ~ -maxdepth 4 -iname playwright-core -type d 2>/dev/null
   ```
   If both exist, the binary is at `~/.cache/ms-playwright/chromium-<build>/chrome-linux64/chrome` and the driver library is the `playwright-core` directory found above (`require()` it directly by that path — it does not need to be inside this repo's own `node_modules`). If neither exists, install Playwright's Chromium first (`npx playwright install chromium` in some scratch npm project) before starting Task 1.
-- Serve the repo root with `python3 -m http.server <port>` from `/home/cadger/compliance-swarm` before running any browser-based verification step. Use `nohup ... & disown` so the server outlives the command that started it; stop it with `pkill -f "http.server <port>"` when a task's verification is done.
+- Serve the repo root with `python3 -m http.server <port>` from `/home/cadger/compliance-swarm/.claude/worktrees/structured-findings` before running any browser-based verification step. Use `nohup ... & disown` so the server outlives the command that started it; stop it with `pkill -f "http.server <port>"` when a task's verification is done.
 - All escaping (`escapeHtml`) and postMessage origin-locking (`window.location.origin`, both as the `postMessage` target and as the `listenForDecisions`/`orchestrator.html` message-listener check) added earlier this session are load-bearing security fixes — never remove or bypass them while touching this code. Every new field that ends up interpolated into `innerHTML` must go through `escapeHtml`, same as every existing field.
 - `agentId` values are the existing short form: `"payroll"` / `"books"` / `"contract"` — never `config/model-policy.json`'s `CONFIG_KEY` values (`payroll_explainer`/`books_review`/`contract_review`).
 - FieldSnap, ShelfSnap, `shared/model-client.js`, and `config/model-policy.json` are out of scope — do not modify them in this plan.
@@ -34,7 +34,16 @@
 
 - [ ] **Step 1: Write the verification script (run against current code first, to confirm the harness itself works before you change anything)**
 
-Create `/tmp/verify-agent-common.js` (adjust the two path constants at the top to whatever Task 1's "Locating the headless browser" step found on this machine):
+`notifyParentIfEmbedded` only does anything when `window.self !== window.top` — i.e., genuinely
+embedded in an iframe. Do not try to fake that by reassigning `window.top`:
+`Object.defineProperty(window, 'top', {value: {}, configurable: true})` throws
+`TypeError: Cannot redefine property: top` in real Chromium (verified directly against this
+project's cached Chromium binary before writing this plan — `window.top` is a non-configurable
+browsing-context accessor, not a plain data property). Use a real iframe instead — this is also more
+representative, since it's exactly how every agent page is actually embedded by `orchestrator.html`.
+
+Create `/tmp/verify-agent-common.js` (adjust the two path constants at the top to whatever "Locating
+the headless browser" in Global Constraints found on this machine):
 
 ```js
 const assert = require('node:assert');
@@ -45,30 +54,75 @@ const BASE = 'http://localhost:8934';
 async function main() {
   const browser = await chromium.launch({ executablePath: CHROME_PATH, args: ['--no-sandbox'] });
   const page = await browser.newPage();
-  await page.goto(`${BASE}/agents/_verify-agent-common.html`, { waitUntil: 'networkidle' });
-  const result = await page.evaluate(() => window.__testResult);
+  await page.goto(`${BASE}/agents/_verify-wrapper.html`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+
+  const iframeFrame = page.frames().find(f => f.url().includes('_verify-fixture.html'));
+  assert.ok(iframeFrame, 'iframe frame not found');
+
+  const fixtureResult = await iframeFrame.evaluate(() => window.__testResult);
+  assert.ok(fixtureResult, 'fixture did not set window.__testResult — did the module fail to load?');
+  if (fixtureResult.error) throw new Error(fixtureResult.error);
+
+  const envelope = await page.evaluate(() => window.__capturedEnvelope);
+  assert.ok(envelope, 'wrapper never captured a flag-created envelope');
+  assert.strictEqual(envelope.data.version, 1, 'envelope.version');
+  assert.strictEqual(envelope.data.type, 'compliance-swarm:flag-created', 'envelope.type');
+  assert.strictEqual(envelope.data.agentId, 'payroll', 'envelope.agentId');
+  assert.ok(envelope.data.payload.id.startsWith('finding_'), 'envelope.payload.id shape');
+  assert.strictEqual(envelope.origin, BASE, 'envelope target origin');
+
+  const findingId = await iframeFrame.evaluate(() => window.__findingId);
+  const received = await iframeFrame.evaluate(() => window.__waitForDecision());
+  assert.ok(received, 'fixture never received the decision-made message relayed by the wrapper');
+  assert.strictEqual(received.itemId, findingId, 'received.itemId matches the original finding id');
+  assert.strictEqual(received.decision, 'approved', 'received.decision');
+
   await browser.close();
-  assert.ok(result, 'fixture did not set window.__testResult — did the module fail to load?');
-  if (result.error) throw new Error(result.error);
   console.log('PASS: all agent-common.js assertions passed');
 }
 main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 ```
 
-Create the fixture page it loads, `agents/_verify-agent-common.html` (temporary — deleted in Step 6, never committed):
+Create the two fixture pages it loads (temporary — both deleted in Step 6, never committed).
+
+`agents/_verify-wrapper.html` — the top-level page; embeds the fixture in a real iframe, captures
+what it sends up, and relays a decision back down (exactly `orchestrator.html`'s own role):
+
+```html
+<!DOCTYPE html>
+<html><body>
+<iframe id="fixture" src="_verify-fixture.html"></iframe>
+<script>
+window.__capturedEnvelope = null;
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'compliance-swarm:flag-created') {
+    window.__capturedEnvelope = { data: e.data, origin: e.origin };
+    document.getElementById('fixture').contentWindow.postMessage(
+      { version: 1, type: 'compliance-swarm:decision-made', agentId: e.data.agentId, payload: { itemId: e.data.payload.id, decision: 'approved' } },
+      window.location.origin
+    );
+  }
+});
+</script>
+</body></html>
+```
+
+`agents/_verify-fixture.html` — the iframe content; runs the actual assertions and calls the real
+`createFinding`/`notifyParentIfEmbedded`/`listenForDecisions` (exactly what an agent page's own
+`<script type="module">` does):
 
 ```html
 <!DOCTYPE html>
 <html><body>
 <script type="module">
-import { createFinding, notifyParentIfEmbedded, listenForDecisions, escapeHtml } from '../shared/agent-common.js';
+import { createFinding, notifyParentIfEmbedded, listenForDecisions } from '../shared/agent-common.js';
 
 function assertEqual(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
 try {
-  // createFinding: fills boilerplate, preserves caller-supplied fields
   const f = createFinding({
     agentId: 'payroll',
     severity: 'high',
@@ -92,38 +146,16 @@ try {
   assertEqual(f.provenance.modelProvider, null, 'provenance.modelProvider default');
   assertEqual(f.provenance.modelName, null, 'provenance.modelName default');
 
-  // two calls produce distinct ids
   const f2 = createFinding({ agentId: 'books', severity: 'medium', title: 'x', evidence: {}, reference: {}, suggestedQuestion: null });
   if (f.id === f2.id) throw new Error('createFinding produced duplicate ids across two calls');
 
-  // notifyParentIfEmbedded: no-op at top level (window.self === window.top in this fixture), must not throw
-  notifyParentIfEmbedded(f);
-
-  // notifyParentIfEmbedded envelope shape, captured via a fake parent
-  let captured = null;
-  const fakeWin = { postMessage: (msg, origin) => { captured = { msg, origin }; } };
-  const realParent = window.parent, realSelf = window.self, realTop = window.top;
-  Object.defineProperty(window, 'top', { value: {}, configurable: true }); // makes self !== top
-  Object.defineProperty(window, 'parent', { value: fakeWin, configurable: true });
-  notifyParentIfEmbedded(f);
-  Object.defineProperty(window, 'top', { value: realTop, configurable: true });
-  Object.defineProperty(window, 'parent', { value: realParent, configurable: true });
-  if (!captured) throw new Error('notifyParentIfEmbedded did not call parent.postMessage when self !== top');
-  assertEqual(captured.msg.version, 1, 'envelope.version');
-  assertEqual(captured.msg.type, 'compliance-swarm:flag-created', 'envelope.type');
-  assertEqual(captured.msg.agentId, 'payroll', 'envelope.agentId');
-  assertEqual(captured.msg.payload.id, f.id, 'envelope.payload is the finding');
-  assertEqual(captured.origin, window.location.origin, 'envelope target origin');
-
-  // listenForDecisions: unwraps the envelope, ignores wrong-origin and wrong-type messages
   let received = null;
   listenForDecisions((itemId, decision) => { received = { itemId, decision }; });
-  window.postMessage({ version: 1, type: 'compliance-swarm:decision-made', agentId: 'payroll', payload: { itemId: f.id, decision: 'approved' } }, window.location.origin);
-  await new Promise(r => setTimeout(r, 50));
-  if (!received) throw new Error('listenForDecisions did not fire for a same-origin decision-made message');
-  assertEqual(received.itemId, f.id, 'received.itemId');
-  assertEqual(received.decision, 'approved', 'received.decision');
 
+  notifyParentIfEmbedded(f); // genuinely embedded here (this file is loaded as an iframe), so this really posts up
+
+  window.__findingId = f.id;
+  window.__waitForDecision = () => received; // polled by the outer script after it relays a decision down
   window.__testResult = { error: null };
 } catch (err) {
   window.__testResult = { error: err.message };
@@ -135,7 +167,7 @@ try {
 - [ ] **Step 2: Serve the repo and run the verification script to confirm it FAILS**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-agent-common.js
 ```
@@ -208,18 +240,19 @@ Expected: `PASS: all agent-common.js assertions passed`, exit code 0.
 pkill -f "http.server 8934"
 ```
 
-- [ ] **Step 6: Delete the temporary fixture (it must not be committed)**
+- [ ] **Step 6: Delete the temporary fixtures (they must not be committed)**
 
 ```bash
-rm /home/cadger/compliance-swarm/agents/_verify-agent-common.html
+rm /home/cadger/compliance-swarm/.claude/worktrees/structured-findings/agents/_verify-wrapper.html
+rm /home/cadger/compliance-swarm/.claude/worktrees/structured-findings/agents/_verify-fixture.html
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /home/cadger/compliance-swarm
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings
 git add shared/agent-common.js
-git status --short   # confirm _verify-agent-common.html is NOT listed — it was deleted in Step 6, never staged
+git status --short   # confirm neither _verify-wrapper.html nor _verify-fixture.html is listed — both were deleted in Step 6, never staged
 git commit -m "Add createFinding() and versioned postMessage envelope to agent-common.js
 
 notifyParentIfEmbedded/listenForDecisions now wrap/unwrap findings in a
@@ -337,7 +370,7 @@ main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 - [ ] **Step 2: Serve the repo and run the verification script to confirm it FAILS**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-orchestrator.js
 ```
@@ -461,7 +494,7 @@ pkill -f "http.server 8934"
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/cadger/compliance-swarm
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings
 git add agents/orchestrator.js
 git commit -m "orchestrator.js: migrate queue to Finding shape, handle envelope messages
 
@@ -551,7 +584,7 @@ main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 - [ ] **Step 2: Serve the repo and run the verification script to confirm it FAILS**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-payroll.js
 ```
@@ -698,7 +731,7 @@ pkill -f "http.server 8934"
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/cadger/compliance-swarm
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings
 git add agents/payroll-review-demo.js
 git commit -m "Payroll: build Finding records per flag instead of one summary per row
 
@@ -759,7 +792,7 @@ main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 - [ ] **Step 2: Serve the repo and run the verification script to confirm it FAILS**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-books.js
 ```
@@ -814,7 +847,7 @@ pkill -f "http.server 8934"
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/cadger/compliance-swarm
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings
 git add agents/books-review-demo.js
 git commit -m "Books: build a Finding record for each uncategorized transaction
 
@@ -875,7 +908,7 @@ main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 - [ ] **Step 2: Serve the repo and run the verification script to confirm it FAILS**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-contract.js
 ```
@@ -956,7 +989,7 @@ pkill -f "http.server 8934"
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/cadger/compliance-swarm
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings
 git add agents/contract-review-demo.js
 git commit -m "Contract: build a Finding record per matched clause, add severity to MATCH_RULES
 
@@ -1056,7 +1089,7 @@ main().catch(err => { console.error('FAIL:', err.message); process.exit(1); });
 - [ ] **Step 2: Serve the repo and run it**
 
 ```bash
-cd /home/cadger/compliance-swarm && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
+cd /home/cadger/compliance-swarm/.claude/worktrees/structured-findings && nohup python3 -m http.server 8934 >/tmp/http-server.log 2>&1 & disown
 sleep 1
 node /tmp/verify-e2e-regression.js
 ```
