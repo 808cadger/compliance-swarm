@@ -86,13 +86,31 @@ let objectUrls = [];
 let renderNumber = 0;
 const filters = { status: '', source: '', job: '', type: '' };
 
+function migrateQueueItem(item) {
+  if (item.schemaVersion === 1) return item;
+  // Pre-schemaVersion shape: {itemId, agentId, summary, decision}
+  return {
+    schemaVersion: 1,
+    id: item.itemId,
+    agentId: item.agentId,
+    severity: 'medium', // unknown provenance — safest default, not a claim about actual risk
+    status: item.decision ?? 'open',
+    title: item.summary,
+    evidence: { summary: item.summary, sourceReference: null, sourceText: null },
+    reference: { id: null, templateSource: null, templateVersion: null },
+    suggestedQuestion: null,
+    createdAt: null,
+    provenance: { policyVersion: null, modelProvider: null, modelName: null }
+  };
+}
+
 function loadQueue() {
   try {
     const raw = localStorage.getItem(QUEUE_KEY);
     const value = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(value)) throw new Error('not an array');
     queueError = false;
-    return value.filter(item => item && typeof item === 'object');
+    return value.filter(item => item && typeof item === 'object').map(migrateQueueItem);
   } catch (e) { queueError = true; return []; }
 }
 function saveQueue(items) { localStorage.setItem(QUEUE_KEY, JSON.stringify(items)); }
@@ -153,7 +171,7 @@ async function enrichLaneDocs(lane, indexItems) {
   } finally { db.close(); }
 }
 function unifiedItems() {
-  const reviewItems = queue.map(item => ({ kind: 'review', source: item.agentId || '', status: item.decision || 'pending', job: '', type: '', item }));
+  const reviewItems = queue.map(item => ({ kind: 'review', source: item.agentId || '', status: item.status || 'open', job: '', type: '', item }));
   const laneItems = Object.keys(LANES).flatMap(lane => laneDocs[lane].map(doc => {
     const fields = LANES[lane].rowFields(doc.detail, doc.index);
     return { kind: 'lane', lane, source: lane, status: fields.status, job: fields.job, type: fields.type, doc, fields };
@@ -181,10 +199,10 @@ function filterHtml(items) {
 function reviewHtml(items) {
   if (queueError) return '<h2>Review items</h2><p class="model-error">The review queue is malformed and was left unchanged.</p>';
   if (!items.length) return '<h2>Review items</h2><p>No review items match these filters.</p>';
-  return `<h2>Review items</h2>${items.map(({ item }) => `<div class="queue-item" data-item-id="${escapeHtml(item.itemId)}">
+  return `<h2>Review items</h2>${items.map(({ item }) => `<div class="queue-item" data-item-id="${escapeHtml(item.id)}">
     <div class="queue-agent-tag">${escapeHtml(sourceLabel(item.agentId))}</div>
-    <p>${escapeHtml(item.summary)}</p>
-    ${item.decision ? `<span class="badge badge-${escapeHtml(item.decision)}">${escapeHtml(item.decision)}</span>` : `<button data-approve="${escapeHtml(item.itemId)}">Approve</button> <button data-reject="${escapeHtml(item.itemId)}">Reject</button>`}
+    <p>${escapeHtml(item.title)}</p>
+    ${item.status !== 'open' ? `<span class="badge badge-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>` : `<button data-approve="${escapeHtml(item.id)}">Approve</button> <button data-reject="${escapeHtml(item.id)}">Reject</button>`}
   </div>`).join('')}`;
 }
 function laneHtml(lane, items) {
@@ -234,28 +252,28 @@ function clearQueue() {
   renderQueue();
 }
 function decide(itemId, decision) {
-  const item = queue.find(q => q.itemId === itemId);
+  const item = queue.find(q => q.id === itemId);
   if (!item) return;
-  item.decision = decision;
+  item.status = decision;
   saveQueue(queue);
   renderQueue();
   const iframe = document.querySelector(`iframe[data-agent="${item.agentId}"]`);
-  if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision }, window.location.origin);
+  if (iframe) iframe.contentWindow.postMessage({ version: 1, type: 'compliance-swarm:decision-made', agentId: item.agentId, payload: { itemId, decision } }, window.location.origin);
 }
 window.addEventListener('message', e => {
   if (e.origin !== window.location.origin) return;
-  if (!e.data || e.data.type !== 'swarm-flag') return;
-  const { agentId, itemId, summary } = e.data;
+  if (!e.data || e.data.type !== 'compliance-swarm:flag-created') return;
+  const finding = e.data.payload;
   queue = loadQueue();
-  let item = queue.find(q => q.itemId === itemId);
+  let item = queue.find(q => q.id === finding.id);
   if (!item) {
-    item = { itemId, agentId, summary, decision: null };
-    queue.push(item);
+    queue.push(finding);
   } else {
-    item.summary = summary;
-    if (item.decision) {
-      const iframe = document.querySelector(`iframe[data-agent="${agentId}"]`);
-      if (iframe) iframe.contentWindow.postMessage({ type: 'swarm-decision', itemId, decision: item.decision }, window.location.origin);
+    const preservedStatus = item.status;
+    Object.assign(item, finding, { status: preservedStatus });
+    if (preservedStatus !== 'open') {
+      const iframe = document.querySelector(`iframe[data-agent="${finding.agentId}"]`);
+      if (iframe) iframe.contentWindow.postMessage({ version: 1, type: 'compliance-swarm:decision-made', agentId: finding.agentId, payload: { itemId: item.id, decision: preservedStatus } }, window.location.origin);
     }
   }
   saveQueue(queue);
