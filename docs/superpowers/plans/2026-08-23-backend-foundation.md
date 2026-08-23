@@ -1526,10 +1526,10 @@ git commit -m "Add Dockerfile, finalize container build, fix test script concurr
 ### Task 12: Move to production location and add Cloudflare Tunnel ingress — CONFIRM BEFORE APPLYING
 
 **Files:**
-- Modify (on the server, outside the repo): `~/.cloudflared/config.yml`
+- Modify (on the server, outside the repo, root-owned): `/etc/cloudflared/config.yml` — corrected from the original plan's `~/.cloudflared/config.yml`: the tunnel now runs as a system-level `cloudflared.service` (verified via `systemctl list-units`), not the ad-hoc user process this plan was originally written against. The controller cannot edit this file or restart this service without root/sudo, which it does not have.
 - Create (on the server, outside the repo): `/opt/compliance-swarm/` (deployed copy of `server/`)
 
-**This task modifies live infrastructure serving `808techserviceshi.cc`. Do not run Steps 2–4 without showing the diff and getting explicit confirmation first.**
+**This task modifies live infrastructure serving `808techserviceshi.cc` (and also `crypto.808techserviceshi.cc`, `updates.808techserviceshi.cc`, added to the same tunnel since this plan was written). Do not run Steps 2–4 without showing the diff and getting explicit confirmation first. Steps requiring root must be run by the human, not the controller.**
 
 - [ ] **Step 1: Copy the built project to `/opt/compliance-swarm/`**
 
@@ -1542,16 +1542,35 @@ chmod 600 .env
 ```
 Then edit `/opt/compliance-swarm/.env` to set real, unique values for `POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, and `COOKIE_SECRET` (e.g. `openssl rand -hex 32` for each).
 
-- [ ] **Step 2: STOP — show the intended diff to `~/.cloudflared/config.yml` before touching it**
+- [ ] **Step 2: STOP — show the intended diff to `/etc/cloudflared/config.yml` before touching it**
+
+Current live content (read directly — the file is world-readable, `-rw-r--r--`, though root-owned):
+
+```yaml
+tunnel: bd78c224-2fa4-400b-a915-d2c0e3bb6fc8
+credentials-file: /etc/cloudflared/bd78c224-2fa4-400b-a915-d2c0e3bb6fc8.json
+ingress:
+  - hostname: 808techserviceshi.cc
+    service: http://localhost:3000
+  - hostname: crypto.808techserviceshi.cc
+    service: http://localhost:4000
+  - hostname: updates.808techserviceshi.cc
+    service: http://localhost:3001
+  - service: http_status:404
+```
 
 Proposed addition to the existing `ingress` list (new entry added **before** the existing `service: http_status:404` catch-all, existing entries untouched):
 
 ```yaml
+tunnel: bd78c224-2fa4-400b-a915-d2c0e3bb6fc8
+credentials-file: /etc/cloudflared/bd78c224-2fa4-400b-a915-d2c0e3bb6fc8.json
 ingress:
   - hostname: 808techserviceshi.cc
     service: http://localhost:3000
-  - hostname: www.808techserviceshi.cc
-    service: http://localhost:3000
+  - hostname: crypto.808techserviceshi.cc
+    service: http://localhost:4000
+  - hostname: updates.808techserviceshi.cc
+    service: http://localhost:3001
   - hostname: compliance.808techserviceshi.cc
     service: http://localhost:4210
   - service: http_status:404
@@ -1559,23 +1578,30 @@ ingress:
 
 Get explicit user confirmation before editing the file.
 
-- [ ] **Step 3: After confirmation, apply the config edit and add the DNS record**
+- [ ] **Step 3: After confirmation, add the DNS record, then the human edits and restarts the service**
 
+The DNS-route command uses `~/.cloudflared/cert.pem` (user-owned, `cadger`) for Cloudflare API auth — no root needed, the controller can run this:
 ```bash
 cloudflared tunnel route dns bd78c224-2fa4-400b-a915-d2c0e3bb6fc8 compliance.808techserviceshi.cc
 ```
-This creates the CNAME in Cloudflare DNS pointing at the tunnel — no manual dashboard step needed. Then edit `~/.cloudflared/config.yml` to add the ingress line from Step 2.
+This creates the CNAME in Cloudflare DNS pointing at the tunnel — no manual dashboard step needed, and it's additive/non-disruptive (an unused DNS record until the ingress rule below is live).
 
-- [ ] **Step 4: Restart the tunnel and verify both hostnames still work**
+`/etc/cloudflared/config.yml` is root-owned and the tunnel runs as the system service `cloudflared.service` — **the human must run these commands**, not the controller:
+```bash
+sudo cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak-2026-08-23
+sudo nano /etc/cloudflared/config.yml   # add the compliance.808techserviceshi.cc block from Step 2's proposed diff
+sudo systemctl restart cloudflared
+```
+
+- [ ] **Step 4: Verify both the existing and new hostnames still work**
 
 ```bash
-kill $(pgrep -f "cloudflared tunnel")
-cloudflared tunnel --config ~/.cloudflared/config.yml run &
-sleep 3
 curl -s -o /dev/null -w "808techserviceshi.cc: %{http_code}\n" https://808techserviceshi.cc
+curl -s -o /dev/null -w "crypto.808techserviceshi.cc: %{http_code}\n" https://crypto.808techserviceshi.cc
+curl -s -o /dev/null -w "updates.808techserviceshi.cc: %{http_code}\n" https://updates.808techserviceshi.cc
 curl -s -o /dev/null -w "compliance.808techserviceshi.cc: %{http_code}\n" https://compliance.808techserviceshi.cc/api/health
 ```
-Expected: both return `200`. If `808techserviceshi.cc` breaks, restore the config from git/backup and restart the tunnel again immediately — do not leave the live site down while debugging the new hostname.
+Expected: all four return `200` (the last one will 502/503 until Task 12 Step 5 actually starts the app container). If any of the first three break, the human should restore `/etc/cloudflared/config.yml` from the backup taken before editing and run `sudo systemctl restart cloudflared` again immediately — do not leave the live sites down while debugging the new hostname.
 
 - [ ] **Step 5: Start the compliance-swarm stack under Compose and seed Jeff's tenant**
 
