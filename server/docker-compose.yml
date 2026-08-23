@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: compliance-swarm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro,Z
+    networks:
+      - compliance_swarm
+
+  app:
+    build: .
+    container_name: compliance-swarm-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file: .env
+    ports:
+      - "127.0.0.1:${PORT}:${PORT}"
+    networks:
+      - compliance_swarm
+
+networks:
+  compliance_swarm:
+    driver: bridge
+
+volumes:
+  postgres_data:
