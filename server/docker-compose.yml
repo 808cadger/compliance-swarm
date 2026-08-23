@@ -11,6 +11,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro,Z
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
       - compliance_swarm
 
