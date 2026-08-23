@@ -452,7 +452,7 @@ test('verifyPassword rejects wrong password', async () => {
 });
 ```
 
-Run: `cd server && npm test -- test/hash.test.js`
+Run: `cd server && node --test test/hash.test.js`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Create `server/src/auth/session.js`**
@@ -561,7 +561,7 @@ test('lookupSession returns null for a disabled user', async () => {
 });
 ```
 
-Run: `cd server && docker compose up -d postgres && DATABASE_URL=postgres://compliance_swarm:changeme@localhost:5432/compliance_swarm npm test -- test/session.test.js`
+Run: `cd server && docker compose up -d postgres && DATABASE_URL=postgres://compliance_swarm:changeme@localhost:5432/compliance_swarm node --test test/session.test.js`
 Expected: PASS (4 tests)
 
 - [ ] **Step 7: Commit**
@@ -637,7 +637,7 @@ test('audit_log rejects UPDATE from the app role', async () => {
 
 Note: the second test only proves the grant if `TEST_DATABASE_URL`/`DATABASE_URL` connects as `compliance_swarm_app` (the restricted role from Task 2), not the Postgres superuser — run tests with that connection string, not `POSTGRES_USER`.
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test -- test/audit.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/audit.test.js`
 Expected: PASS (2 tests)
 
 - [ ] **Step 3: Commit**
@@ -714,7 +714,7 @@ test('reset clears a key', () => {
 });
 ```
 
-Run: `cd server && npm test -- test/rateLimit.test.js`
+Run: `cd server && node --test test/rateLimit.test.js`
 Expected: PASS (3 tests)
 
 - [ ] **Step 3: Commit**
@@ -838,7 +838,7 @@ test('valid session, correct role -> 200', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test -- test/authenticate.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/authenticate.test.js`
 Expected: PASS (3 tests)
 
 - [ ] **Step 4: Commit**
@@ -1022,7 +1022,7 @@ test('11th login attempt within the window is rate limited', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test -- test/auth-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/auth-routes.test.js`
 Expected: PASS (5 tests)
 
 - [ ] **Step 4: Commit**
@@ -1169,7 +1169,7 @@ test('GET /api/users only returns users in the caller\'s tenant', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test -- test/user-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/user-routes.test.js`
 Expected: PASS (4 tests)
 
 - [ ] **Step 4: Commit**
@@ -1382,7 +1382,7 @@ test('accounting hitting their own dashboard gets 200', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test -- test/dashboard-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/dashboard-routes.test.js`
 Expected: PASS (4 tests)
 
 - [ ] **Step 6: Commit**
