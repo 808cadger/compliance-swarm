@@ -166,8 +166,10 @@ in application code. A compromised app process should not be able to rewrite its
 
 ## Deployment contract (for the later infra sub-project)
 
-- Service listens on `127.0.0.1:<port>` inside its container only; never `0.0.0.0` on the
-  host.
+- Inside the container the process listens on all interfaces (only the host's Docker network
+  can reach it at all); the host-side exposure is restricted by publishing the port as
+  `127.0.0.1:<port>:<port>` in Compose, never `<port>:<port>` — that publish spec, not the
+  app's own bind address, is what keeps the port off the LAN.
 - Config via environment variables, supplied by `/opt/compliance-swarm/.env` (`chmod 600`,
   not committed): `DATABASE_URL`, `COOKIE_SECRET`, `NODE_ENV`, `PORT`, `TZ`.
 - No database port is published to the host or the network.
