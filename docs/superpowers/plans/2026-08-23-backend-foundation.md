@@ -964,7 +964,6 @@ import { getTestPool, resetDb } from './helpers/db.js';
 import { hashPassword } from '../src/auth/hash.js';
 import { createApp } from '../src/app.js';
 
-process.env.COOKIE_SECRET ??= 'test-secret';
 const pool = getTestPool();
 beforeEach(async () => { await resetDb(pool); });
 after(async () => { await pool.end(); });
@@ -1022,7 +1021,7 @@ test('11th login attempt within the window is rate limited', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/auth-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm COOKIE_SECRET=test-secret node --test test/auth-routes.test.js`
 Expected: PASS (5 tests)
 
 - [ ] **Step 4: Commit**
@@ -1112,7 +1111,6 @@ import { createSession } from '../src/auth/session.js';
 import sign from 'cookie-signature';
 import { createApp } from '../src/app.js';
 
-process.env.COOKIE_SECRET ??= 'test-secret';
 const pool = getTestPool();
 beforeEach(async () => { await resetDb(pool); });
 after(async () => { await pool.end(); });
@@ -1169,7 +1167,7 @@ test('GET /api/users only returns users in the caller\'s tenant', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/user-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm COOKIE_SECRET=test-secret node --test test/user-routes.test.js`
 Expected: PASS (4 tests)
 
 - [ ] **Step 4: Commit**
@@ -1340,7 +1338,6 @@ import { hashPassword } from '../src/auth/hash.js';
 import { createSession } from '../src/auth/session.js';
 import { createApp } from '../src/app.js';
 
-process.env.COOKIE_SECRET ??= 'test-secret';
 const pool = getTestPool();
 beforeEach(async () => { await resetDb(pool); });
 after(async () => { await pool.end(); });
@@ -1382,7 +1379,7 @@ test('accounting hitting their own dashboard gets 200', async () => {
 });
 ```
 
-Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm node --test test/dashboard-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm COOKIE_SECRET=test-secret node --test test/dashboard-routes.test.js`
 Expected: PASS (4 tests)
 
 - [ ] **Step 6: Commit**
