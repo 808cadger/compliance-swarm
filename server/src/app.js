@@ -5,6 +5,7 @@ import { pool } from './db.js';
 import { LoginRateLimiter } from './rateLimit.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
+import dashboardRoutes from './routes/dashboard.js';
 
 export function createApp() {
   const app = express();
@@ -16,6 +17,7 @@ export function createApp() {
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   app.use('/api/auth', authRoutes({ pool, rateLimiter }));
   app.use('/api/users', userRoutes({ pool }));
+  app.use(dashboardRoutes({ pool }));
 
   return app;
 }
