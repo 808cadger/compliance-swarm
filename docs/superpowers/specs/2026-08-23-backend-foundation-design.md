@@ -43,8 +43,11 @@ Confirmed directly on the target server (Fedora Linux 44, `/home/cadger`):
   call a JSON API via `fetch`, same shape as the existing `fetch('../config/...')` calls
   already used for the chart-of-accounts/clause-library templates), and it containerizes
   identically to the box's existing Docker pattern.
-- **Database:** Postgres 16, one dedicated container, no published port — reachable only from
-  the app container over the project's private Docker network.
+- **Database:** Postgres 16, one dedicated container, published only to the host's loopback
+  interface (`127.0.0.1:5432:5432` in Compose) for local dev/test tooling that runs on the
+  host rather than in a container — never to the LAN or public internet. This matches the
+  original requirement ("keep the database private to the Docker network or localhost") and
+  the box's existing `site-ops-agent` convention of loopback-bound ports for local services.
 - **Sessions:** server-side sessions stored in Postgres (a `sessions` table), referenced by an
   opaque random token in an `httpOnly`, `Secure`, `SameSite=Strict` cookie. No JWTs — a pilot
   this small has no need for stateless tokens, and server-side sessions are trivially revocable
@@ -172,7 +175,9 @@ in application code. A compromised app process should not be able to rewrite its
   app's own bind address, is what keeps the port off the LAN.
 - Config via environment variables, supplied by `/opt/compliance-swarm/.env` (`chmod 600`,
   not committed): `DATABASE_URL`, `COOKIE_SECRET`, `NODE_ENV`, `PORT`, `TZ`.
-- No database port is published to the host or the network.
+- The database port is published to the host's loopback interface only
+  (`127.0.0.1:5432:5432`) — for local dev/test tooling that runs on the host — never to the
+  LAN or public internet, and never as a bare `5432:5432` mapping.
 
 ## Explicitly deferred (not forgotten)
 

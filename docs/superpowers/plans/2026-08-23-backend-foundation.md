@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- No database port published to host or LAN — Postgres reachable only inside the project's private Docker network (spec: Architecture).
+- Postgres is published to the host's loopback interface only (`127.0.0.1:5432:5432`, for local dev/test tooling that runs on the host) — never to the LAN or public internet, and never as a bare `5432:5432` mapping (spec: Architecture; ruling recorded in the SDD ledger during Task 3 — the plan originally said "no published port" at all, which turned out to be incompatible with every later task's host-side test Run commands connecting via `localhost:5432`; the original user requirement explicitly permits "Docker network or localhost").
 - The app's Docker Compose port publish spec is `127.0.0.1:<PORT>:<PORT>`, never `<PORT>:<PORT>` — that host-side restriction, not the process's own bind address, keeps the port off the LAN (spec: Deployment contract).
 - Every route requires explicit role allow-list; a route with none is unreachable, not open (spec: Authorization).
 - `tenant_id` and `role` for a request come only from the server-side session, never from client-submitted body/query (spec: Auth flow step 3).
@@ -221,7 +221,7 @@ git commit -m "Scaffold Express server with health check"
 **Interfaces:**
 - Produces: tables `tenants`, `users` (`user_role` enum: `owner_admin`, `supervisor`, `accounting`), `sessions`, `audit_log` — exact columns as in the spec's Data model section.
 - Produces: a restricted Postgres role `compliance_swarm_app` (used by `DATABASE_URL`) with `INSERT, SELECT` only on `audit_log`, full DML on the other three tables.
-- Produces: `docker-compose.yml` with services `postgres` (no published port) and `app` (bound `127.0.0.1:${PORT}`), a private `compliance_swarm` network, named volume `postgres_data`.
+- Produces: `docker-compose.yml` with services `postgres` (published `127.0.0.1:5432:5432` only, per the ruling in Global Constraints) and `app` (bound `127.0.0.1:${PORT}`), a private `compliance_swarm` network, named volume `postgres_data`.
 
 - [ ] **Step 1: Create `server/db/init/001_schema.sql`**
 
@@ -318,7 +318,9 @@ services:
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/init:/docker-entrypoint-initdb.d:ro,Z
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
       - compliance_swarm
 
@@ -341,6 +343,8 @@ networks:
 volumes:
   postgres_data:
 ```
+
+Note: this reflects two fixes ruled on after Task 2 was originally built and reviewed — `:ro,Z` on the init mount (this host runs SELinux Enforcing, so the plain `:ro` bind mount is denied) and the `127.0.0.1:5432:5432` publish (the plan originally said "no published port," but every later task's test Run commands connect from the host via `localhost:5432`, which is impossible without one; loopback-only publish matches the original requirement's "Docker network or localhost" allowance). See the SDD ledger for the full ruling.
 
 Replace `server/.env.example` (created in Task 1) with:
 
@@ -1602,6 +1606,6 @@ Expected: at least a `login_success` row matching the login just performed.
 ```bash
 ss -tlnp | grep -E ':4210|:5432'
 ```
-Expected: `4210` bound to `127.0.0.1` only; `5432` not listed at all (Postgres has no published port).
+Expected: both `4210` and `5432` bound to `127.0.0.1` only, never `0.0.0.0` or a bare LAN-facing address.
 
 This is the demo: a real login at a real HTTPS URL, three roles that genuinely can't see each other's routes, and an audit trail proving it — ready to walk Jeff through. Photo/video capture, AI draft review, and daily reports are the next three sub-projects, each getting its own spec before being built.
