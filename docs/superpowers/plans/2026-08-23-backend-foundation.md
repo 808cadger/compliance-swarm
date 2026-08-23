@@ -1461,6 +1461,7 @@ git commit -m "Add tenant/owner seed script"
 - Create: `server/Dockerfile`
 - Modify: `server/docker-compose.yml` (already created in Task 2 — no structural change, verify build context)
 - Create: `server/.dockerignore`
+- Modify: `server/package.json` (fix the `test` script's flag ordering — see Step 3)
 
 **Interfaces:**
 - Produces: a built `app` image runnable via `docker compose up -d`, serving `http://127.0.0.1:${PORT}/api/health`.
@@ -1487,7 +1488,17 @@ test
 *.log
 ```
 
-- [ ] **Step 3: Build and verify**
+- [ ] **Step 3: Fix `package.json`'s `test` script flag ordering**
+
+`node --test` silently ignores flags placed after the file glob — Node's CLI parser only honors `--test-concurrency` when it comes before the positional file arguments. Task 1's original script (`node --test test/**/*.test.js`) runs every test file concurrently by default, which races against the one live shared Postgres database (multiple files' `beforeEach` hooks deleting/inserting the same rows at once) and produces intermittent foreign-key-constraint failures when the whole suite runs together — verified: the exact same suite goes from several failures to 0/28 failures purely by moving a `--test-concurrency=1` flag before the glob. Update `server/package.json`'s `scripts.test` to:
+
+```json
+"test": "node --test --test-concurrency=1 test/**/*.test.js"
+```
+
+This doesn't affect any other task's own per-file verification commands (`node --test test/X.test.js`, invoked directly, never through this npm script) — it only changes what runs when the whole suite is invoked via `npm test`, which happens in this task's Step 5 below.
+
+- [ ] **Step 4: Build and verify**
 
 Run:
 ```bash
@@ -1502,12 +1513,12 @@ ss -tlnp | grep 4210
 ```
 Expected: only `127.0.0.1:4210`, never `0.0.0.0:4210`.
 
-- [ ] **Step 4: Run the full test suite once more against the composed stack, then commit**
+- [ ] **Step 5: Run the full test suite once more against the composed stack, then commit**
 
 ```bash
 DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test
-git add server/Dockerfile server/.dockerignore
-git commit -m "Add Dockerfile and finalize container build for compliance-swarm-server"
+git add server/Dockerfile server/.dockerignore server/package.json
+git commit -m "Add Dockerfile, finalize container build, fix test script concurrency"
 ```
 
 ---
