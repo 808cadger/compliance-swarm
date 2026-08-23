@@ -1516,7 +1516,7 @@ Expected: only `127.0.0.1:4210`, never `0.0.0.0:4210`.
 - [ ] **Step 5: Run the full test suite once more against the composed stack, then commit**
 
 ```bash
-DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm npm test
+DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm COOKIE_SECRET=test-secret npm test
 git add server/Dockerfile server/.dockerignore server/package.json
 git commit -m "Add Dockerfile, finalize container build, fix test script concurrency"
 ```
