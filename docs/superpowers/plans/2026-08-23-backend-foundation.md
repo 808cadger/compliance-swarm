@@ -396,6 +396,8 @@ TZ=America/New_York
 
 - [ ] **Step 4: Verify locally**
 
+Note: once a production deployment exists on this host, `compliance-swarm-postgres` on port `5432` is production — use the dev override (`server/docker-compose.dev.yml`, added after this task in a later fix) instead: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres` and `docker exec -it compliance-swarm-postgres-dev psql -U compliance_swarm -d compliance_swarm -c "\dt"`. The commands below reflect this task's original, pre-production execution.
+
 Run:
 ```bash
 cd server
@@ -1751,10 +1753,12 @@ Expected: all four return `200` (the last one will 502/503 until Task 12 Step 5 
 
 ```bash
 cd /opt/compliance-swarm
-docker compose up -d
+docker compose up -d --build
 sleep 3
 docker compose exec -T app node scripts/seed-tenant.js "Jeff's Company" jeff@example.com "<a-real-temp-password>"
 ```
+`--build` is required, not optional — a bare `docker compose up -d` recreates containers from whatever image already exists and silently skips picking up any Dockerfile change (e.g. the `USER node` fix), landing only the parts of a fix that live in `docker-compose.yml` itself. After any redeploy following a Dockerfile change, verify with `docker exec compliance-swarm-app id` (must not report `uid=0`).
+
 Record the printed tenant/user id somewhere private — this is Jeff's first login.
 
 ---
