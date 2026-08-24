@@ -23,6 +23,20 @@
 
 ---
 
+## Running tests after production went live (supersedes the per-task Run commands)
+
+Production now runs its own Postgres container on the **same `127.0.0.1:5432`** that dev/test has always used, and its database is also named `compliance_swarm`. The per-task Run commands in Tasks 3–11 below pass `DATABASE_URL=...@localhost:5432/compliance_swarm` — those are kept as historical records of what was actually run, but **must not be used as-is any more**: they would point the test suite, including `resetDb`'s DELETEs, at the live company database.
+
+Going forward, all test runs use `TEST_DATABASE_URL` against the dedicated `compliance_swarm_test` database (created by `server/db/init/003_test_db.sh`, schema and grants identical to `compliance_swarm`):
+
+```
+cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm_test COOKIE_SECRET=test-secret npm test
+```
+
+`TEST_DATABASE_URL` is **required and has no `DATABASE_URL` fallback** — tests fail fast if it is unset. The npm `test` script preloads `test/helpers/setup-env.js`, which also pins the app-under-test's own `DATABASE_URL` to the same test database. As a final backstop, `resetDb` queries `current_database()` and refuses to delete anything unless the name ends in `_test`. Application code in `server/src/**` still reads `DATABASE_URL` — that is correct and unchanged; only test invocations moved.
+
+---
+
 ## File Structure
 
 ```
