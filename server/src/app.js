@@ -7,6 +7,55 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
 
+// Exported (rather than inlined in createApp) so tests can exercise it directly against a
+// real res.sendFile ENOENT without needing a route that reads one of the real dashboard
+// HTML files out from under production.
+export function errorHandler(err, req, res, next) {
+  // A failure part-way through a streamed response (res.sendFile on the dashboard routes)
+  // arrives here with the headers already flushed; setting them again throws a second error.
+  // Express's own final handler is the only thing that can still do anything useful: destroy
+  // the socket.
+  if (res.headersSent) return next(err);
+
+  console.error(err);
+  // Express and its middleware attach a status to errors that are the *client's* fault:
+  // express.json() throws SyntaxError with status 400 on a malformed body and 413 over the
+  // size limit, res.sendFile forwards ENOENT as 404. Flattening those to 500 both lies to
+  // the caller and hides real 4xx behaviour behind a generic server-error envelope.
+  //
+  // err.message is never safe to hand back verbatim, though. res.sendFile's ENOENT carries
+  // the container's absolute filesystem path (and sets expose: false to say so), but
+  // body-parser's malformed-JSON SyntaxError sets expose: true and *still* embeds a raw
+  // fragment of the request body in its message (V8 quotes the bytes around the parse
+  // failure) — so expose can't be trusted as the sole guard here. No route in this app
+  // relies on a custom message surfacing through this handler: code that wants to tell the
+  // client something specific replies directly instead of throwing. So every 4xx gets a
+  // fixed, status-appropriate message instead — the real error is already in the log above.
+  const status = err.status ?? err.statusCode ?? 500;
+  if (status < 500) {
+    const message = status === 404
+      ? 'Not found'
+      : status === 413
+        ? 'Payload too large'
+        : 'Bad request';
+    return res.status(status).json({
+      error: {
+        code: status === 404 ? 'not_found' : 'bad_request',
+        message,
+      },
+    });
+  }
+
+  const includeDetail = config.nodeEnv !== 'production';
+  res.status(status).json({
+    error: {
+      code: 'internal',
+      message: 'Something went wrong',
+      ...(includeDetail ? { detail: err.message } : {}),
+    },
+  });
+}
+
 export function createApp() {
   const app = express();
 
@@ -35,37 +84,7 @@ export function createApp() {
   // Everything below must stay LAST, after every route mount: Express dispatches middleware
   // in registration order, and identifies the error handler by its arity (4 params).
   app.use((req, res) => res.status(404).json({ error: { code: 'not_found', message: 'Not found' } }));
-  app.use((err, req, res, next) => {
-    // A failure part-way through a streamed response (res.sendFile on the dashboard routes)
-    // arrives here with the headers already flushed; setting them again throws a second error.
-    // Express's own final handler is the only thing that can still do anything useful: destroy
-    // the socket.
-    if (res.headersSent) return next(err);
-
-    console.error(err);
-    // Express and its middleware attach a status to errors that are the *client's* fault:
-    // express.json() throws SyntaxError with status 400 on a malformed body and 413 over the
-    // size limit, res.sendFile forwards ENOENT as 404. Flattening those to 500 both lies to
-    // the caller and hides real 4xx behaviour behind a generic server-error envelope.
-    const status = err.status ?? err.statusCode ?? 500;
-    if (status < 500) {
-      return res.status(status).json({
-        error: {
-          code: status === 404 ? 'not_found' : 'bad_request',
-          message: err.message,
-        },
-      });
-    }
-
-    const includeDetail = config.nodeEnv !== 'production';
-    res.status(status).json({
-      error: {
-        code: 'internal',
-        message: 'Something went wrong',
-        ...(includeDetail ? { detail: err.message } : {}),
-      },
-    });
-  });
+  app.use(errorHandler);
 
   return app;
 }

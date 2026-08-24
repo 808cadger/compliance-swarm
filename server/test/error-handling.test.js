@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import express from 'express';
 import request from 'supertest';
 import sign from 'cookie-signature';
 import { getTestPool, resetDb } from './helpers/db.js';
 import { hashPassword } from '../src/auth/hash.js';
 import { createSession } from '../src/auth/session.js';
-import { createApp } from '../src/app.js';
+import { createApp, errorHandler } from '../src/app.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.join(__dirname, '..', 'src', 'index.js');
@@ -42,6 +43,28 @@ test('an unknown path returns the JSON error envelope, not Express HTML', async 
   assert.equal(res.body.error.code, 'not_found');
 });
 
+// res.sendFile's ENOENT carries the container's absolute filesystem path in err.message and
+// sets expose: false specifically to mark that as unsafe to show a client. This builds a tiny
+// standalone app around the real errorHandler (not a copy of it) and points res.sendFile at a
+// path that can't exist, so the ENOENT is genuine — without touching any real file under
+// server/src/public that production also depends on.
+test('a res.sendFile ENOENT does not leak the filesystem path to the client', async () => {
+  const app = express();
+  app.get('/missing-asset', (req, res, next) => {
+    res.sendFile(path.join(__dirname, 'this-file-does-not-exist-anywhere.html'), (err) => {
+      if (err) next(err);
+    });
+  });
+  app.use(errorHandler);
+
+  const res = await request(app).get('/missing-asset');
+
+  assert.equal(res.status, 404);
+  assert.equal(res.body.error.code, 'not_found');
+  assert.equal(res.body.error.message, 'Not found');
+  assert.doesNotMatch(JSON.stringify(res.body), /this-file-does-not-exist-anywhere|ENOENT|\/home\/|\/app\//);
+});
+
 test('a duplicate email returns a clean 500 JSON envelope instead of an unhandled rejection', async () => {
   const cookie = await seedOwnerCookie();
   const app = createApp();
@@ -67,11 +90,17 @@ test('a malformed JSON body returns 400, not 500', async () => {
   const res = await request(createApp())
     .post('/api/auth/login')
     .set('Content-Type', 'application/json')
-    .send('{"email": "u@test.co", "password": ');
+    .send('{"secretToken": "abcdef123456", "password": garbage');
 
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'bad_request');
-  assert.ok(res.body.error.message, 'the parse failure should say what was wrong');
+  assert.ok(res.body.error.message, 'the response should say what was wrong');
+  // body-parser's SyntaxError sets expose: true, but its message still quotes a fragment of
+  // the raw request body (V8's JSON.parse error). The client gets a fixed message instead —
+  // never the raw bytes the request sent, even though nothing here is cross-user (this is
+  // same-client reflection), it's needless exposure of server-internal detail either way.
+  assert.equal(res.body.error.message, 'Bad request');
+  assert.doesNotMatch(JSON.stringify(res.body), /secretToken|abcdef123456|garbage/);
 });
 
 // The in-process assertions above can't prove the process survives: supertest runs the app
