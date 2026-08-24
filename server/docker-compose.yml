@@ -22,7 +22,17 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
-    env_file: .env
+    # Only the five variables the spec's Deployment contract lists — NOT `env_file: .env`,
+    # which would also hand the app the Postgres superuser credentials
+    # (POSTGRES_USER/POSTGRES_PASSWORD) and POSTGRES_APP_PASSWORD, defeating the restricted
+    # compliance_swarm_app role's insert-only grant on audit_log. Compose still reads .env
+    # for ${VAR} substitution below; it just no longer injects the whole file.
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+      TZ: ${TZ}
+      DATABASE_URL: ${DATABASE_URL}
+      COOKIE_SECRET: ${COOKIE_SECRET}
     ports:
       - "127.0.0.1:${PORT}:${PORT}"
     networks:
