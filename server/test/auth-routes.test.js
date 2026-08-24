@@ -51,6 +51,40 @@ test('login for a disabled user is rejected', async () => {
   assert.equal(res.status, 401);
 });
 
+// UNIQUE (tenant_id, email) permits the same address in two tenants, and login is not
+// tenant-scoped. Rather than guess which user was meant, the route fails closed — with the
+// same body as every other login failure, so the client learns nothing about the collision.
+test('login with an email present in two tenants fails closed and audits the real reason', async () => {
+  const hash = await hashPassword('correct-horse-battery');
+  for (const name of ['Test Co', 'Other Co']) {
+    const { rows: [tenant] } = await pool.query(`INSERT INTO tenants (name) VALUES ($1) RETURNING id`, [name]);
+    await pool.query(
+      `INSERT INTO users (tenant_id, email, password_hash, role, display_name)
+       VALUES ($1, 'u@test.co', $2, 'owner_admin', 'U')`,
+      [tenant.id, hash],
+    );
+  }
+
+  const res = await request(createApp())
+    .post('/api/auth/login')
+    .send({ email: 'u@test.co', password: 'correct-horse-battery' });
+
+  // Correct password, but the account is ambiguous: still refused, and indistinguishable
+  // from a wrong password or an unknown address.
+  assert.equal(res.status, 401);
+  assert.deepEqual(res.body, { error: { code: 'invalid_credentials', message: 'Invalid email or password' } });
+  assert.equal(res.headers['set-cookie'], undefined);
+
+  const { rows } = await pool.query(`SELECT event_type, metadata FROM audit_log`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].event_type, 'login_failed');
+  assert.equal(rows[0].metadata.reason, 'ambiguous_tenant');
+  assert.equal(rows[0].metadata.tenantCount, 2);
+
+  const { rows: sessions } = await pool.query(`SELECT id FROM sessions`);
+  assert.equal(sessions.length, 0);
+});
+
 test('11th login attempt within the window is rate limited', async () => {
   await seedUser();
   const app = createApp();

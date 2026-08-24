@@ -43,6 +43,21 @@ test('supervisor cannot create a user', async () => {
   assert.equal(res.status, 403);
 });
 
+test('a tempPassword under the 12-character minimum is rejected', async () => {
+  const { cookie } = await seedUserWithCookie('owner_admin');
+  const res = await request(createApp())
+    .post('/api/users')
+    .set('Cookie', [cookie])
+    .send({ email: 'new@test.co', displayName: 'New', role: 'supervisor', tempPassword: 'elevenchar' + 'x' });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'bad_request');
+  assert.match(res.body.error.message, /at least 12 characters/);
+
+  const { rows } = await pool.query(`SELECT id FROM users WHERE email = 'new@test.co'`);
+  assert.equal(rows.length, 0, 'the account must not be created');
+});
+
 test('accounting cannot list users', async () => {
   const { cookie } = await seedUserWithCookie('accounting');
   const res = await request(createApp()).get('/api/users').set('Cookie', [cookie]);
