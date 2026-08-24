@@ -43,7 +43,7 @@ cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@loca
 
 Any manual dev `DATABASE_URL` used from the host follows the same rule — `localhost:5433`, and the `compliance_swarm_test` database unless you specifically mean dev's own `compliance_swarm`. (Inside the Compose network the app still reaches Postgres at `postgres:5432`; the 5433 publish is host-side only.)
 
-`TEST_DATABASE_URL` is **required and has no `DATABASE_URL` fallback** — tests fail fast if it is unset. The npm `test` script preloads `test/helpers/setup-env.js`, which also pins the app-under-test's own `DATABASE_URL` to the same test database. As a final backstop, `resetDb` queries `current_database()` and refuses to delete anything unless the name ends in `_test`. Application code in `server/src/**` still reads `DATABASE_URL` — that is correct and unchanged; only test invocations moved.
+`TEST_DATABASE_URL` is **required and has no `DATABASE_URL` fallback** — tests fail fast if it is unset. The npm `test` script preloads `test/helpers/setup-env.js`, which also pins the app-under-test's own `DATABASE_URL` to the same test database. As a final backstop, `resetDb` queries `current_database()` and passes it to the exported `assertTestDatabaseName`, which refuses to let anything be deleted unless the name ends in `_test` — and `server/test/dbGuard.test.js` covers that guard directly, so removing or inverting it fails `npm test`. Application code in `server/src/**` still reads `DATABASE_URL` — that is correct and unchanged; only test invocations moved.
 
 ---
 
@@ -428,7 +428,8 @@ git commit -m "Add Postgres schema, grants, and dev Docker Compose"
 - Consumes: `pg` `Pool` from Task 2's schema (real DB required for session tests).
 - Produces: `hash.js` exports `hashPassword(plain) -> Promise<string>`, `verifyPassword(hash, plain) -> Promise<boolean>`.
 - Produces: `session.js` exports `createSession(pool, { userId, tenantId, ipAddress, userAgent }) -> Promise<{ token, expiresAt }>`, `lookupSession(pool, token) -> Promise<{ userId, tenantId, role, expiresAt } | null>`, `deleteSession(pool, token) -> Promise<void>`, `refreshSession(pool, token) -> Promise<void>`.
-- Produces: `test/helpers/db.js` exports `getTestPool()` and `resetDb(pool)` (truncates all four tables), used by every DB-backed test from here on.
+- Produces: `test/helpers/db.js` exports `getTestPool()`, `resetDb(pool)` (deletes from all four tables in one transaction), and `assertTestDatabaseName(name)`, used by every DB-backed test from here on.
+- Test: `server/test/dbGuard.test.js` (added by the Stage 2 fix — see Step 2a).
 
 - [ ] **Step 1: Create `server/src/db.js`**
 
@@ -441,18 +442,112 @@ export const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
 - [ ] **Step 2: Create `server/test/helpers/db.js`**
 
+Note (Stage 1 + Stage 2 fixes, amended after this task was built and reviewed — same style as the loopback-port ruling in Global Constraints): the original block here was four lines — `getTestPool()` falling back to `process.env.DATABASE_URL`, and a `resetDb` that ran `TRUNCATE ... CASCADE` unconditionally. Once production went live on the same host:port with a database of the same name, that fallback plus an unguarded TRUNCATE would wipe real company data on any test run with a stray `DATABASE_URL` set. **Do not re-execute the original.** The current file, reproduced below, is what this step now produces: `TEST_DATABASE_URL` is required with no fallback, deletes are scoped and transactional, and `assertTestDatabaseName` refuses any database whose name does not end in `_test` (covered by `server/test/dbGuard.test.js` — see Step 2a).
+
 ```js
 import pg from 'pg';
 
+// TEST_DATABASE_URL is required with no DATABASE_URL fallback: a production database with the
+// same name listens on localhost:5432. The dev stack (docker-compose.dev.yml) is on 5433.
+function requireTestDatabaseUrl() {
+  const url = process.env.TEST_DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      'TEST_DATABASE_URL is required to run tests and has no fallback. Point it at the dedicated ' +
+      'test database, e.g. TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test ' +
+      '(5433 is the dev stack: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres)'
+    );
+  }
+  return url;
+}
+
 export function getTestPool() {
-  const connectionString = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-  return new pg.Pool({ connectionString });
+  return new pg.Pool({ connectionString: requireTestDatabaseUrl() });
+}
+
+function getSuperuserConnectionString() {
+  // Build superuser connection string from TEST_DATABASE_URL if possible
+  const dbUrl = requireTestDatabaseUrl();
+  if (!dbUrl.includes('compliance_swarm_app')) {
+    // Already using superuser or unknown
+    return null;
+  }
+  // Replace app role with superuser role and password
+  const user = process.env.POSTGRES_USER || 'compliance_swarm';
+  const password = process.env.POSTGRES_PASSWORD || 'changeme';
+  return dbUrl
+    .replace(/compliance_swarm_app:[^@]+@/, `${user}:${password}@`);
+}
+
+// The last line of defense before resetDb deletes anything: production's database is named
+// `compliance_swarm`, the test database `compliance_swarm_test`. Exported (and covered by
+// test/dbGuard.test.js) so that removing or inverting this check fails the suite rather than
+// silently pointing the DELETEs at real company data.
+export function assertTestDatabaseName(name) {
+  if (!name.endsWith('_test')) {
+    throw new Error(
+      `resetDb refused to delete rows: connected to database "${name}", whose name does not end ` +
+      'in "_test". Set TEST_DATABASE_URL to the dedicated test database (e.g. compliance_swarm_test).'
+    );
+  }
 }
 
 export async function resetDb(pool) {
-  await pool.query('TRUNCATE audit_log, sessions, users, tenants RESTART IDENTITY CASCADE');
+  // Try to use superuser connection for cleanup if available
+  let cleanupPool = pool;
+  const superuserUrl = getSuperuserConnectionString();
+  if (superuserUrl) {
+    cleanupPool = new pg.Pool({ connectionString: superuserUrl });
+  }
+
+  const client = await cleanupPool.connect();
+  try {
+    const { rows } = await client.query('SELECT current_database() AS name');
+    assertTestDatabaseName(rows[0].name);
+
+    await client.query('BEGIN');
+    await client.query('DELETE FROM sessions');
+    await client.query('DELETE FROM audit_log');
+    await client.query('DELETE FROM users');
+    await client.query('DELETE FROM tenants');
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+    if (superuserUrl) {
+      await cleanupPool.end();
+    }
+  }
 }
 ```
+
+This step also produces `server/test/helpers/setup-env.js` (preloaded by the `npm test` script), which applies the same no-fallback requirement to the app-under-test's own `DATABASE_URL`.
+
+- [ ] **Step 2a: Create `server/test/dbGuard.test.js`** (Stage 2 fix)
+
+Nothing else in the suite would catch `assertTestDatabaseName` being deleted or inverted — every other DB-backed test happens to run against a `*_test` database, so they pass either way. This regression test needs no database:
+
+```js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { assertTestDatabaseName } from './helpers/db.js';
+
+test('assertTestDatabaseName rejects the production database name', () => {
+  assert.throws(
+    () => assertTestDatabaseName('compliance_swarm'),
+    /does not end in "_test"/,
+  );
+});
+
+test('assertTestDatabaseName accepts the dedicated test database name', () => {
+  assert.doesNotThrow(() => assertTestDatabaseName('compliance_swarm_test'));
+});
+```
+
+Run: `cd server && node --test test/dbGuard.test.js`
+Expected: PASS (2 tests). Verified by mutation: inverting the `!name.endsWith('_test')` condition fails both.
 
 - [ ] **Step 3: Create `server/src/auth/hash.js`**
 
