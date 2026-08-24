@@ -1,9 +1,13 @@
 import { pool } from '../src/db.js';
-import { hashPassword } from '../src/auth/hash.js';
+import { hashPassword, MIN_PASSWORD_LENGTH } from '../src/auth/hash.js';
 
 const [companyName, email, tempPassword] = process.argv.slice(2);
 if (!companyName || !email || !tempPassword) {
   console.error('Usage: node scripts/seed-tenant.js "<Company Name>" <owner-email> <owner-temp-password>');
+  process.exit(1);
+}
+if (tempPassword.length < MIN_PASSWORD_LENGTH) {
+  console.error(`Refusing to seed: owner temp password must be at least ${MIN_PASSWORD_LENGTH} characters (got ${tempPassword.length}).`);
   process.exit(1);
 }
 

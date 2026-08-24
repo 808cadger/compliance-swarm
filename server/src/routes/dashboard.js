@@ -12,6 +12,11 @@ const ROLE_PATH = { owner_admin: 'owner', supervisor: 'supervisor', accounting: 
 export default function dashboardRoutes({ pool }) {
   const router = Router();
 
+  // The bare domain is what a business owner hits first; without this it 404s.
+  router.get('/', (req, res) => {
+    res.redirect('/login');
+  });
+
   router.get('/login', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
   });
