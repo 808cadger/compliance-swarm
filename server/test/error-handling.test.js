@@ -60,6 +60,20 @@ test('a duplicate email returns a clean 500 JSON envelope instead of an unhandle
   assert.match(second.body.error.detail, /duplicate key value/);
 });
 
+// express.json() rejects a malformed body with a SyntaxError carrying status 400. The login
+// page POSTs JSON, so flattening that to 500 would both mislead the caller and mask a plain
+// client mistake as a server fault.
+test('a malformed JSON body returns 400, not 500', async () => {
+  const res = await request(createApp())
+    .post('/api/auth/login')
+    .set('Content-Type', 'application/json')
+    .send('{"email": "u@test.co", "password": ');
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'bad_request');
+  assert.ok(res.body.error.message, 'the parse failure should say what was wrong');
+});
+
 // The in-process assertions above can't prove the process survives: supertest runs the app
 // inside the test runner, which installs its own rejection handling. This spawns the real
 // entrypoint (src/index.js) as its own Node process, provokes the same 23505 violation, and
