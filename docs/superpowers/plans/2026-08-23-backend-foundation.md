@@ -27,11 +27,21 @@
 
 Production now runs its own Postgres container on the **same `127.0.0.1:5432`** that dev/test has always used, and its database is also named `compliance_swarm`. The per-task Run commands in Tasks 3–11 below pass `DATABASE_URL=...@localhost:5432/compliance_swarm` — those are kept as historical records of what was actually run, but **must not be used as-is any more**: they would point the test suite, including `resetDb`'s DELETEs, at the live company database.
 
-Going forward, all test runs use `TEST_DATABASE_URL` against the dedicated `compliance_swarm_test` database (created by `server/db/init/003_test_db.sh`, schema and grants identical to `compliance_swarm`):
+Worse, production also owns the *global* container names `compliance-swarm-postgres` / `compliance-swarm-app` (`container_name` is a global Docker namespace, not per-project), so a plain `docker compose up` from `server/` collides with production by name **and** by port — and a `--force-recreate` there could take production down. `server/docker-compose.dev.yml` (added by the Stage 2 fix) exists to prevent that: it is an override file carrying only the deltas that move a dev stack out of production's way (`-dev` container-name suffixes, host ports 5433 and 4211). It is deliberately **not** named `docker-compose.override.yml`, so Compose never auto-merges it — it must always be passed explicitly with `-f`.
+
+Bring the dev stack up like this — never with a bare `docker compose up`:
+
+```bash
+cd server && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+```
+
+(Add `--build` and drop the trailing `postgres` to bring the app up too, on `127.0.0.1:4211`.) Dev Postgres is then on **`localhost:5433`**; `localhost:5432` is production and must never appear in a test or dev connection string. All test runs use `TEST_DATABASE_URL` against the dedicated `compliance_swarm_test` database (created by `server/db/init/003_test_db.sh`, schema and grants identical to `compliance_swarm`):
 
 ```
-cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm_test COOKIE_SECRET=test-secret npm test
+cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret npm test
 ```
+
+Any manual dev `DATABASE_URL` used from the host follows the same rule — `localhost:5433`, and the `compliance_swarm_test` database unless you specifically mean dev's own `compliance_swarm`. (Inside the Compose network the app still reaches Postgres at `postgres:5432`; the 5433 publish is host-side only.)
 
 `TEST_DATABASE_URL` is **required and has no `DATABASE_URL` fallback** — tests fail fast if it is unset. The npm `test` script preloads `test/helpers/setup-env.js`, which also pins the app-under-test's own `DATABASE_URL` to the same test database. As a final backstop, `resetDb` queries `current_database()` and refuses to delete anything unless the name ends in `_test`. Application code in `server/src/**` still reads `DATABASE_URL` — that is correct and unchanged; only test invocations moved.
 
@@ -45,6 +55,7 @@ server/
   .env.example
   Dockerfile
   docker-compose.yml
+  docker-compose.dev.yml        # local-dev overrides; explicit -f only (Stage 2 fix)
   src/
     config.js
     db.js
@@ -344,7 +355,12 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
-    env_file: .env
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+      TZ: ${TZ}
+      DATABASE_URL: ${DATABASE_URL}
+      COOKIE_SECRET: ${COOKIE_SECRET}
     ports:
       - "127.0.0.1:${PORT}:${PORT}"
     networks:
@@ -357,6 +373,10 @@ networks:
 volumes:
   postgres_data:
 ```
+
+Note (Stage 2 fix, amended after this task was built and reviewed): the `app` service originally read `env_file: .env`, which handed the container every variable in that file — including the `POSTGRES_USER`/`POSTGRES_PASSWORD` **superuser** credentials and `POSTGRES_APP_PASSWORD`. That nullified the restricted `compliance_swarm_app` role from Step 2 (a compromised app process could just reconnect as superuser and rewrite `audit_log`). The explicit `environment:` block above lists exactly the five variables the spec's Deployment contract names; Compose still reads `.env` for `${VAR}` substitution, it just no longer injects the file. Do not restore `env_file:` here.
+
+Note (Stage 2 fix): create `server/docker-compose.dev.yml` alongside this file — see "Running tests after production went live" above. Production is a verbatim copy of this compose file, so its global `container_name` values and host ports 5432/4210 belong to production; the override file is what lets a dev stack coexist. Its `ports:` entries need the `!override` YAML tag, because Compose *concatenates* `ports` sequences across `-f` files rather than replacing them — without it the dev stack would still try to bind 5432/4210 and collide with production.
 
 Note: this reflects two fixes ruled on after Task 2 was originally built and reviewed — `:ro,Z` on the init mount (this host runs SELinux Enforcing, so the plain `:ro` bind mount is denied) and the `127.0.0.1:5432:5432` publish (the plan originally said "no published port," but every later task's test Run commands connect from the host via `localhost:5432`, which is impossible without one; loopback-only publish matches the original requirement's "Docker network or localhost" allowance). See the SDD ledger for the full ruling.
 
@@ -1487,11 +1507,15 @@ FROM node:20-slim
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
-COPY src ./src
-COPY scripts ./scripts
+RUN chown -R node:node /app
+USER node
+COPY --chown=node:node src ./src
+COPY --chown=node:node scripts ./scripts
 EXPOSE 4210
 CMD ["node", "src/index.js"]
 ```
+
+Note (Stage 2 fix, amended after this task was built and reviewed): the `chown`/`USER node`/`--chown` lines were added later — the original ran the app as root inside the container. `node:20-slim` ships an unprivileged `node` user (uid 1000); `/app` is chowned after the install so the app can read `node_modules`. Verify with `docker exec <container> id` — it must not report `uid=0(root)`.
 
 - [ ] **Step 2: Create `server/.dockerignore`**
 
@@ -1527,6 +1551,15 @@ ss -tlnp | grep 4210
 ```
 Expected: only `127.0.0.1:4210`, never `0.0.0.0:4210`.
 
+Note (Stage 2 fix): the bare `docker compose up -d --build` above is a historical record of what was run *before production existed*. It must not be used as-is any more — production now owns those container names and ports, and this command would collide with (or recreate) it. Use the dev override and its ports instead:
+```bash
+cd server
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+sleep 3
+curl -s http://127.0.0.1:4211/api/health
+docker exec compliance-swarm-app-dev id   # must not be uid=0(root)
+```
+
 - [ ] **Step 5: Run the full test suite once more against the composed stack, then commit**
 
 ```bash
@@ -1534,6 +1567,8 @@ DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/complia
 git add server/Dockerfile server/.dockerignore server/package.json
 git commit -m "Add Dockerfile, finalize container build, fix test script concurrency"
 ```
+
+Note (Stage 2 fix): that `DATABASE_URL=...@localhost:5432/compliance_swarm` invocation is historical and now dangerous — it points at the live company database. Use the `TEST_DATABASE_URL` form against `localhost:5433/compliance_swarm_test` from "Running tests after production went live" above.
 
 ---
 
