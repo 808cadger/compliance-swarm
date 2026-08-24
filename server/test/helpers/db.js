@@ -1,14 +1,26 @@
 import pg from 'pg';
 
+// TEST_DATABASE_URL is required with no DATABASE_URL fallback: a production database
+// with the same name now listens on the same host:port that dev/test has always used.
+function requireTestDatabaseUrl() {
+  const url = process.env.TEST_DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      'TEST_DATABASE_URL is required to run tests and has no fallback. Point it at the dedicated ' +
+      'test database, e.g. TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5432/compliance_swarm_test'
+    );
+  }
+  return url;
+}
+
 export function getTestPool() {
-  const connectionString = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-  return new pg.Pool({ connectionString });
+  return new pg.Pool({ connectionString: requireTestDatabaseUrl() });
 }
 
 function getSuperuserConnectionString() {
-  // Build superuser connection string from DATABASE_URL if possible
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl || !dbUrl.includes('compliance_swarm_app')) {
+  // Build superuser connection string from TEST_DATABASE_URL if possible
+  const dbUrl = requireTestDatabaseUrl();
+  if (!dbUrl.includes('compliance_swarm_app')) {
     // Already using superuser or unknown
     return null;
   }
@@ -29,6 +41,15 @@ export async function resetDb(pool) {
 
   const client = await cleanupPool.connect();
   try {
+    const { rows } = await client.query('SELECT current_database() AS name');
+    const dbName = rows[0].name;
+    if (!dbName.endsWith('_test')) {
+      throw new Error(
+        `resetDb refused to delete rows: connected to database "${dbName}", whose name does not end ` +
+        'in "_test". Set TEST_DATABASE_URL to the dedicated test database (e.g. compliance_swarm_test).'
+      );
+    }
+
     await client.query('BEGIN');
     await client.query('DELETE FROM sessions');
     await client.query('DELETE FROM audit_log');
