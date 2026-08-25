@@ -1612,6 +1612,8 @@ EXPOSE 4210
 CMD ["node", "src/index.js"]
 ```
 
+Note (Stage 4 fix, amended after this task was built and reviewed): the first two lines shipped are now `COPY package.json package-lock.json ./` and `RUN npm ci --omit=dev`. The `*` glob above matched zero files as happily as one, so a build with no lockfile present silently re-resolved every `^`-ranged dependency instead of failing; `server/package-lock.json` had also never been committed. Both are fixed — the lockfile is in git, and `npm ci` refuses to run if it drifts from `package.json`. Because dependency installation now happens entirely at image build time, a redeploy must pass `--build` (already noted in the Stage 2 amendment).
+
 Note (Stage 2 fix, amended after this task was built and reviewed): the `chown`/`USER node`/`--chown` lines were added later — the original ran the app as root inside the container. `node:20-slim` ships an unprivileged `node` user (uid 1000); `/app` is chowned after the install so the app can read `node_modules`. Verify with `docker exec <container> id` — it must not report `uid=0(root)`.
 
 - [ ] **Step 2: Create `server/.dockerignore`**
