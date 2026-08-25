@@ -28,3 +28,8 @@ services:
     container_name: compliance-swarm-app-dev
     ports: !override
       - "127.0.0.1:4211:4210"
+    volumes:
+      - media_data_dev:/data/media
+
+volumes:
+  media_data_dev:
