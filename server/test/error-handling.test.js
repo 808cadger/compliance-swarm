@@ -123,7 +123,12 @@ test('a res.sendFile ENOENT does not leak the filesystem path to the client', as
   assert.doesNotMatch(JSON.stringify(res.body), /this-file-does-not-exist-anywhere|ENOENT|\/home\/|\/app\//);
 });
 
-test('a duplicate email returns a clean 500 JSON envelope instead of an unhandled rejection', async () => {
+// Postgres 23505 (unique_violation) on the (tenant_id, email) constraint is caught explicitly
+// in the route handler and turned into a clean 409, never reaching this generic error
+// handler at all. See user-routes.test.js for the route-level assertion; this test's
+// remaining job is proving the request that provokes it doesn't crash the process (the
+// process-survival half is covered end-to-end below).
+test('a duplicate email returns 409, not an unhandled rejection', async () => {
   const cookie = await seedOwnerCookie();
   const app = createApp();
   const body = { email: 'dup@test.co', displayName: 'Dup', role: 'supervisor', tempPassword: 'temp12345678' };
@@ -131,14 +136,9 @@ test('a duplicate email returns a clean 500 JSON envelope instead of an unhandle
   const first = await request(app).post('/api/users').set('Cookie', [cookie]).send(body);
   assert.equal(first.status, 201);
 
-  // Second insert violates UNIQUE (tenant_id, email) -> Postgres 23505 rejects the query
-  // inside the async handler. Before asyncRoute this was an unhandled rejection.
   const second = await request(app).post('/api/users').set('Cookie', [cookie]).send(body);
-  assert.equal(second.status, 500);
-  assert.equal(second.body.error.code, 'internal');
-  assert.equal(second.body.error.message, 'Something went wrong');
-  // NODE_ENV is not 'production' under test, so config.nodeEnv gates the detail on.
-  assert.match(second.body.error.detail, /duplicate key value/);
+  assert.equal(second.status, 409);
+  assert.equal(second.body.error.code, 'conflict');
 });
 
 // express.json() rejects a malformed body with a SyntaxError carrying status 400. The login
@@ -179,6 +179,25 @@ test('a malformed login body never writes the password to the log', async () => 
     assert.match(output, /entity\.parse\.failed/, `nothing was logged for body ${JSON.stringify(body)}`);
     assertNoFragmentOf(output, PASSWORD_MARKER);
   }
+});
+
+// A malformed Content-Encoding header (claiming gzip on bytes that aren't) produces a zlib
+// error with neither `.type` nor `.body` — the two properties describeErrorForLog originally
+// keyed its redaction on. Its message is a fixed string from zlib's own constant table
+// ("incorrect header check"), so this was safe in practice, but not structurally guaranteed
+// the way the type/body checks are. This proves the widened `expose === true && status < 500`
+// check now catches this error family too, rather than falling through to the raw-stack log.
+test('a malformed Content-Encoding request is logged without its raw stack, by identity only', async () => {
+  const { result: res, output } = await captureAllOutput(() => request(createApp())
+    .post('/api/auth/login')
+    .set('Content-Type', 'application/json')
+    .set('Content-Encoding', 'gzip')
+    .send('not actually gzip data'));
+
+  assert.equal(res.status, 400);
+  assert.match(output, /detail withheld/);
+  // The raw stack's first line would otherwise be "Error: incorrect header check ...".
+  assert.doesNotMatch(output, /incorrect header check/);
 });
 
 // And the same thing against the real entrypoint, reading its actual stderr — the in-process
@@ -248,8 +267,8 @@ test('the real server process survives a duplicate-email error and keeps serving
   assert.equal(first.status, 201);
 
   const second = await request(base).post('/api/users').set('Cookie', [cookie]).send(body);
-  assert.equal(second.status, 500, 'duplicate insert must answer, not hang or drop the connection');
-  assert.equal(second.body.error.code, 'internal');
+  assert.equal(second.status, 409, 'duplicate insert must answer, not hang or drop the connection');
+  assert.equal(second.body.error.code, 'conflict');
 
   // The whole point: the process is still alive and still answering after that error.
   assert.equal(exited, null, `server process exited: ${JSON.stringify(exited)}`);

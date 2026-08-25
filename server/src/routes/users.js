@@ -21,11 +21,21 @@ export default function userRoutes({ pool }) {
       return res.status(400).json({ error: { code: 'bad_request', message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` } });
     }
     const hash = await hashPassword(tempPassword);
-    const { rows: [user] } = await pool.query(
-      `INSERT INTO users (tenant_id, email, password_hash, role, display_name)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, email, role`,
-      [req.user.tenantId, email, hash, role, displayName],
-    );
+    let user;
+    try {
+      ({ rows: [user] } = await pool.query(
+        `INSERT INTO users (tenant_id, email, password_hash, role, display_name)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, email, role`,
+        [req.user.tenantId, email, hash, role, displayName],
+      ));
+    } catch (err) {
+      // 23505 = unique_violation: a duplicate (tenant_id, email) is a foreseeable, common
+      // client-input case (retyping an email that already exists), not a server error.
+      if (err.code === '23505') {
+        return res.status(409).json({ error: { code: 'conflict', message: 'A user with this email already exists' } });
+      }
+      throw err;
+    }
     await writeAudit(pool, {
       tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'user_created',
       targetType: 'user', targetId: user.id, metadata: { role },

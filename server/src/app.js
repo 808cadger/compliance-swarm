@@ -20,10 +20,19 @@ import dashboardRoutes from './routes/dashboard.js';
 // (or a `body`) is therefore logged by identity alone; everything else — our own bugs, pg
 // errors, res.sendFile ENOENT — still logs its full stack, since those messages are built
 // from server-side values, not from raw request bytes.
-function describeErrorForLog(err) {
+export function describeErrorForLog(err) {
   if (!(err instanceof Error)) return `non-Error thrown (${typeof err})`;
   const status = err.status ?? err.statusCode ?? 500;
-  if (typeof err.type === 'string' || err.body !== undefined) {
+  // The `type`/`body` checks catch body-parser's own error family (malformed JSON, oversized
+  // payload) by shape. A malformed Content-Encoding header (e.g. claiming gzip on non-gzip
+  // bytes) produces a zlib error with neither property, so it fell through to the raw-stack
+  // branch below. That's safe today (zlib's messages are fixed strings from a constant table
+  // and never interpolate request bytes), but not structurally guaranteed the way the
+  // `type`/`body` checks are. `expose: true` + a 4xx status is Express/connect's own signal
+  // that an error's message is meant to be client-safe and boilerplate, which covers this
+  // family (and any future one shaped the same way) without hardcoding zlib specifics.
+  const isExposedClientError = err.expose === true && status < 500;
+  if (typeof err.type === 'string' || err.body !== undefined || isExposedClientError) {
     return `request rejected: ${err.name} type=${err.type ?? 'unknown'} status=${status} (detail withheld: may contain request body)`;
   }
   return err.stack ?? `${err.name}: ${err.message}`;

@@ -49,6 +49,16 @@ test('owner_admin can create a user, and the creation is audited', async () => {
   });
 });
 
+test('creating a user with an email already in the tenant returns 409, not 500', async () => {
+  const { cookie } = await seedUserWithCookie('owner_admin');
+  const res = await request(createApp())
+    .post('/api/users')
+    .set('Cookie', [cookie])
+    .send({ email: 'u@test.co', displayName: 'Dupe', role: 'supervisor', tempPassword: 'temp12345678' });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error.code, 'conflict');
+});
+
 test('supervisor cannot create a user', async () => {
   const { cookie } = await seedUserWithCookie('supervisor');
   const res = await request(createApp())
