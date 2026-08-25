@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Supervisor Dashboard</title></head>
+<body>
+  <h1>Supervisor Dashboard</h1>
+  <p>You are logged in as a Supervisor. The daily walkthrough capture flow lands here in a later build.</p>
+  <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
+    <button type="submit">Log out</button>
+  </form>
+</body></html>

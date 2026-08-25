@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Owner Dashboard</title></head>
+<body>
+  <h1>Owner / Admin Dashboard</h1>
+  <p>You are logged in as an Owner/Admin. User management and company-wide rollups land here in a later build.</p>
+  <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
+    <button type="submit">Log out</button>
+  </form>
+</body></html>

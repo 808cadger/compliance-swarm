@@ -1,0 +1,30 @@
+# Local-development overrides. NOT named docker-compose.override.yml on purpose: Compose
+# auto-merges that name, and this file must never take effect implicitly — least of all if
+# it were ever copied to /opt/compliance-swarm/ (it shouldn't be, but explicit-only
+# invocation makes it inert there anyway).
+#
+# Production runs the plain docker-compose.yml from /opt/compliance-swarm/ and owns the
+# global container names compliance-swarm-postgres / compliance-swarm-app and host ports
+# 5432 / 4210. `container_name` is a global Docker namespace, not per-project, so a dev
+# stack brought up the plain way collides with production by name and by port. These
+# deltas move the dev stack out of the way:
+#
+#   cd server && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Dev Postgres is then on localhost:5433, dev app on 127.0.0.1:4211.
+#
+# The `name` below pins the Compose project namespace explicitly, so dev/prod separation
+# is structural (guaranteed distinct project) rather than relying on directory-name
+# defaults plus nobody invoking this file from an unexpected working directory.
+name: compliance-swarm-dev
+
+services:
+  postgres:
+    container_name: compliance-swarm-postgres-dev
+    ports: !override
+      - "127.0.0.1:5433:5432"
+
+  app:
+    container_name: compliance-swarm-app-dev
+    ports: !override
+      - "127.0.0.1:4211:4210"
