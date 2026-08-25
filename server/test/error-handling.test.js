@@ -369,8 +369,9 @@ test('the real server process survives an uncaught handler error and keeps servi
 
   // The actual crash provocation: a pg error nothing in the route catches, so it unwinds out
   // of the async handler and can only be contained by asyncRoute. Without that containment
-  // this request goes unanswered and the child process dies on the unhandled rejection, so
-  // both assertions here and every assertion after them fail.
+  // this request goes unanswered (the index.js unhandledRejection backstop keeps the process
+  // itself alive, so `exited` alone can't tell them apart — the 500-not-a-timeout assertion
+  // below is what actually discriminates asyncRoute's containment).
   const uncaught = await request(base)
     .post('/api/users')
     .set('Cookie', [cookie])
