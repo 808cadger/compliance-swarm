@@ -28,7 +28,14 @@ services:
     # compliance_swarm_app role's insert-only grant on audit_log. Compose still reads .env
     # for ${VAR} substitution below; it just no longer injects the whole file.
     environment:
-      NODE_ENV: ${NODE_ENV}
+      # `:-` (not `-`): substitutes `production` when NODE_ENV is unset OR empty. With a bare
+      # ${NODE_ENV}, a .env missing the variable still injects NODE_ENV="" into the container,
+      # and an `environment:` entry always overrides the image's own ENV — so the Dockerfile's
+      # NODE_ENV=production default would be silently replaced by an empty string. config.js
+      # reads `process.env.NODE_ENV ?? 'development'`, which `??` does not rescue from "",
+      # leaving config.nodeEnv falsy and failing the `!== 'production'` checks that gate
+      # error-detail disclosure — exactly the case the image default was meant to cover.
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PORT}
       TZ: ${TZ}
       DATABASE_URL: ${DATABASE_URL}

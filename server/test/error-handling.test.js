@@ -10,11 +10,20 @@ import { getTestPool, resetDb } from './helpers/db.js';
 import { hashPassword } from '../src/auth/hash.js';
 import { createSession } from '../src/auth/session.js';
 import { createApp, errorHandler } from '../src/app.js';
+import { asyncRoute } from '../src/asyncRoute.js';
+import { config } from '../src/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.join(__dirname, '..', 'src', 'index.js');
 const LIVE_PORT = 4299;
 const LOG_LEAK_PORT = 4298;
+
+// A NUL byte is rejected by Postgres itself (SQLSTATE 22021, "invalid byte sequence for
+// encoding UTF8") before any constraint is consulted, so it is a genuine, uncaught,
+// *non*-23505 database error raised from inside a real asyncRoute-wrapped handler. JSON
+// escapes it as a \u0000 sequence over the wire, so it reaches the route as an ordinary string.
+const NUL = String.fromCharCode(0);
+const NUL_EMAIL = `nul${NUL}byte@test.co`;
 
 // Stands in for a real password in the malformed-body tests below. Deliberately long enough
 // that a partial leak is still recognisable: V8 truncates the fragment it quotes in a JSON
@@ -124,11 +133,12 @@ test('a res.sendFile ENOENT does not leak the filesystem path to the client', as
 });
 
 // Postgres 23505 (unique_violation) on the (tenant_id, email) constraint is caught explicitly
-// in the route handler and turned into a clean 409, never reaching this generic error
-// handler at all. See user-routes.test.js for the route-level assertion; this test's
-// remaining job is proving the request that provokes it doesn't crash the process (the
-// process-survival half is covered end-to-end below).
-test('a duplicate email returns 409, not an unhandled rejection', async () => {
+// inside the route handler and answered as a clean 409, so it never reaches the terminal
+// error handler at all — which also means it can no longer prove anything about crash
+// protection or about the 500 branch. It proves exactly one thing now: the 409 path works
+// end to end through the real app. The crash-protection and 500-branch proofs live in the
+// two tests below (and, for the real OS process, in the spawned-process test further down).
+test('a duplicate email returns 409 from the route, without reaching the error handler', async () => {
   const cookie = await seedOwnerCookie();
   const app = createApp();
   const body = { email: 'dup@test.co', displayName: 'Dup', role: 'supervisor', tempPassword: 'temp12345678' };
@@ -139,6 +149,87 @@ test('a duplicate email returns 409, not an unhandled rejection', async () => {
   const second = await request(app).post('/api/users').set('Cookie', [cookie]).send(body);
   assert.equal(second.status, 409);
   assert.equal(second.body.error.code, 'conflict');
+});
+
+// The mechanism-level proof that asyncRoute still works. Express 4 does not await handlers,
+// so without asyncRoute's .catch(next) the rejection below is an unhandled rejection: the
+// request never gets an answer at all (and, outside the test runner, Node's default
+// --unhandled-rejections=throw kills the process). Replacing asyncRoute with a pass-through
+// therefore fails this test with failureType 'unhandledRejection' rather than passing quietly
+// — verified by doing exactly that; the whole file passed unchanged before this test existed.
+//
+// It also covers errorHandler's 500 branch, which nothing else reaches any more, including
+// the config.nodeEnv gate on err.message. That gate is an information-disclosure control, so
+// both of its sides are asserted: the handler reads config.nodeEnv per request, so flipping
+// the field (and restoring it) exercises the production side without a second process. A
+// plain Error is used deliberately — no .status, no .code, nothing errorHandler could use to
+// classify it as anything but a server fault.
+//
+// The deadlines matter: an unanswered request is the exact failure mode a broken asyncRoute
+// produces, and node:test only attributes an unhandled rejection to a test once that test
+// finishes — so with no deadline a regression here hangs the whole run instead of failing it.
+// The per-request .timeout() is what makes the failure *clean*: it aborts the socket so
+// supertest closes its ephemeral server, letting the run exit rather than idling on a live
+// handle after the test-level timeout fires. Both are far above the ~1s these actually take
+// (argon2 hashing dominates). Same for the database-error test below.
+test('an uncaught rejection inside an asyncRoute handler becomes a 500, not an unanswered request', { timeout: 20_000 }, async (t) => {
+  const app = express();
+  app.get('/boom', asyncRoute(async () => { throw new Error('something broke'); }));
+  app.use(errorHandler);
+
+  const originalNodeEnv = config.nodeEnv;
+  t.after(() => { config.nodeEnv = originalNodeEnv; });
+
+  config.nodeEnv = 'development';
+  const { result: dev, output } = await captureAllOutput(() => request(app).get('/boom').timeout(10_000));
+  assert.equal(dev.status, 500);
+  assert.equal(dev.body.error.code, 'internal');
+  assert.equal(dev.body.error.message, 'Something went wrong');
+  assert.equal(dev.body.error.detail, 'something broke');
+  // Proves the terminal handler is what answered, rather than something else producing a 500.
+  assert.match(output, /GET \/boom ->/);
+  assert.match(output, /something broke/);
+
+  config.nodeEnv = 'production';
+  const { result: prod } = await captureAllOutput(() => request(app).get('/boom').timeout(10_000));
+  assert.equal(prod.status, 500);
+  assert.equal(prod.body.error.code, 'internal');
+  assert.equal(prod.body.error.message, 'Something went wrong');
+  assert.ok(!('detail' in prod.body.error), 'production must not disclose err.message to the client');
+  assert.doesNotMatch(JSON.stringify(prod.body), /something broke/);
+});
+
+// The same crash-protection proof, but through the real createApp() and a real database
+// error, which additionally pins the discrimination the 23505 catch in routes/users.js
+// introduced: that catch must answer 409 for a unique violation *only*, and re-throw every
+// other SQLSTATE so it still lands on the terminal handler as a 500. A NUL byte in the email
+// makes Postgres reject the INSERT with 22021 before any constraint is evaluated, so this is
+// a genuine uncaught pg rejection out of an asyncRoute-wrapped handler — not a synthetic one.
+test('a non-23505 database error still reaches the terminal handler as a 500, not a 409', { timeout: 20_000 }, async () => {
+  const cookie = await seedOwnerCookie();
+  const app = createApp();
+  const body = { displayName: 'Nul', role: 'supervisor', tempPassword: 'temp12345678' };
+
+  const { result: res, output } = await captureAllOutput(() => request(app)
+    .post('/api/users')
+    .set('Cookie', [cookie])
+    .timeout(10_000)
+    .send({ ...body, email: NUL_EMAIL }));
+
+  assert.equal(res.status, 500, 'a non-unique-violation pg error must not be answered as a 409');
+  assert.equal(res.body.error.code, 'internal');
+  assert.notEqual(res.body.error.code, 'conflict');
+  // The pg error really was the 22021 one this test meant to provoke, and it really did pass
+  // through the terminal handler's log line rather than being swallowed by the route.
+  assert.match(output, /POST \/api\/users ->/);
+  assert.match(output, /invalid byte sequence/);
+
+  // And the same route, same catch block, still answers 409 for the error code it does own.
+  const ok = await request(app).post('/api/users').set('Cookie', [cookie]).send({ ...body, email: 'dup@test.co' });
+  assert.equal(ok.status, 201);
+  const dup = await request(app).post('/api/users').set('Cookie', [cookie]).send({ ...body, email: 'dup@test.co' });
+  assert.equal(dup.status, 409);
+  assert.equal(dup.body.error.code, 'conflict');
 });
 
 // express.json() rejects a malformed body with a SyntaxError carrying status 400. The login
@@ -238,11 +329,17 @@ test('the real server process does not print the password on a malformed login',
   assert.equal(exited, null, `server process exited: ${JSON.stringify(exited)}`);
 });
 
-// The in-process assertions above can't prove the process survives: supertest runs the app
-// inside the test runner, which installs its own rejection handling. This spawns the real
-// entrypoint (src/index.js) as its own Node process, provokes the same 23505 violation, and
-// then checks the process is still up and still serving.
-test('the real server process survives a duplicate-email error and keeps serving', async (t) => {
+// The in-process assertions above can't prove the real process survives: supertest runs the
+// app inside the test runner, which installs its own rejection handling, so an unhandled
+// rejection there fails a test instead of killing a server. This spawns the real entrypoint
+// (src/index.js) as its own Node process — where Node's default --unhandled-rejections=throw
+// is what actually applies — and provokes a genuine uncaught pg rejection (the 22021 NUL-byte
+// insert) from inside an asyncRoute-wrapped handler, then checks the process is still up and
+// still serving. The duplicate-email requests around it are no longer the crash provocation:
+// 23505 is caught in the route and answered as a 409 without ever unwinding to asyncRoute.
+// They stay because this is the only end-to-end check that both branches behave correctly
+// against a real listening server.
+test('the real server process survives an uncaught handler error and keeps serving', { timeout: 60_000 }, async (t) => {
   const cookie = await seedOwnerCookie();
 
   const child = spawn(process.execPath, [SERVER_ENTRY], {
@@ -269,6 +366,18 @@ test('the real server process survives a duplicate-email error and keeps serving
   const second = await request(base).post('/api/users').set('Cookie', [cookie]).send(body);
   assert.equal(second.status, 409, 'duplicate insert must answer, not hang or drop the connection');
   assert.equal(second.body.error.code, 'conflict');
+
+  // The actual crash provocation: a pg error nothing in the route catches, so it unwinds out
+  // of the async handler and can only be contained by asyncRoute. Without that containment
+  // this request goes unanswered and the child process dies on the unhandled rejection, so
+  // both assertions here and every assertion after them fail.
+  const uncaught = await request(base)
+    .post('/api/users')
+    .set('Cookie', [cookie])
+    .timeout(10_000)
+    .send({ ...body, email: NUL_EMAIL });
+  assert.equal(uncaught.status, 500, 'an uncaught handler error must still answer the request');
+  assert.equal(uncaught.body.error.code, 'internal');
 
   // The whole point: the process is still alive and still answering after that error.
   assert.equal(exited, null, `server process exited: ${JSON.stringify(exited)}`);
