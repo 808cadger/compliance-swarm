@@ -21,17 +21,32 @@ async function seedUserWithCookie(role) {
   );
   const { token } = await createSession(pool, { userId: user.id, tenantId: tenant.id });
   const cookie = `session=s:${sign.sign(token, process.env.COOKIE_SECRET)}`;
-  return { cookie, tenantId: tenant.id };
+  return { cookie, tenantId: tenant.id, userId: user.id };
 }
 
-test('owner_admin can create a user', async () => {
-  const { cookie } = await seedUserWithCookie('owner_admin');
+test('owner_admin can create a user, and the creation is audited', async () => {
+  const { cookie, tenantId, userId } = await seedUserWithCookie('owner_admin');
   const res = await request(createApp())
     .post('/api/users')
     .set('Cookie', [cookie])
     .send({ email: 'new@test.co', displayName: 'New', role: 'supervisor', tempPassword: 'temp12345678' });
   assert.equal(res.status, 201);
   assert.equal(res.body.role, 'supervisor');
+
+  // The spec requires a role change to leave an audit trail, and creating an account is the
+  // first assignment of one. target_id is a text column holding the new user's uuid.
+  const { rows } = await pool.query(
+    `SELECT event_type, tenant_id, actor_user_id, target_type, target_id, metadata FROM audit_log ORDER BY id`,
+  );
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0], {
+    event_type: 'user_created',
+    tenant_id: tenantId,
+    actor_user_id: userId,
+    target_type: 'user',
+    target_id: res.body.id,
+    metadata: { role: 'supervisor' },
+  });
 });
 
 test('supervisor cannot create a user', async () => {

@@ -12,11 +12,12 @@ after(async () => { await pool.end(); });
 async function seedUser({ role = 'owner_admin', password = 'correct-horse-battery', disabled = false } = {}) {
   const { rows: [tenant] } = await pool.query(`INSERT INTO tenants (name) VALUES ('Test Co') RETURNING id`);
   const hash = await hashPassword(password);
-  await pool.query(
+  const { rows: [user] } = await pool.query(
     `INSERT INTO users (tenant_id, email, password_hash, role, display_name, disabled_at)
-     VALUES ($1, 'u@test.co', $2, $3, 'U', $4)`,
+     VALUES ($1, 'u@test.co', $2, $3, 'U', $4) RETURNING id`,
     [tenant.id, hash, role, disabled ? new Date() : null],
   );
+  return { tenantId: tenant.id, userId: user.id };
 }
 
 test('login with correct password sets cookie and returns role', async () => {
@@ -37,6 +38,33 @@ test('login with wrong password returns generic error and audits login_failed', 
   assert.equal(res.body.error.code, 'invalid_credentials');
   const { rows } = await pool.query(`SELECT event_type FROM audit_log`);
   assert.deepEqual(rows.map(r => r.event_type), ['login_failed']);
+});
+
+// The spec requires an audit row for every logout, not just every login. Driving this through
+// a real login (rather than a hand-built session row) is what proves the cookie the client is
+// actually given resolves back to the right user and tenant when it is spent on logout.
+test('logout writes a logout audit row for the session it ends', async () => {
+  const { tenantId, userId } = await seedUser();
+  const app = createApp();
+
+  const login = await request(app).post('/api/auth/login').send({ email: 'u@test.co', password: 'correct-horse-battery' });
+  assert.equal(login.status, 200);
+  const cookie = login.headers['set-cookie'];
+
+  const logout = await request(app).post('/api/auth/logout').set('Cookie', cookie);
+  assert.equal(logout.status, 204);
+
+  const { rows } = await pool.query(
+    `SELECT event_type, actor_user_id, tenant_id FROM audit_log ORDER BY id`,
+  );
+  assert.deepEqual(rows.map(r => r.event_type), ['login_success', 'logout']);
+  const logoutRow = rows[1];
+  assert.equal(logoutRow.actor_user_id, userId);
+  assert.equal(logoutRow.tenant_id, tenantId);
+
+  // The session must actually be gone, or the audit row records something that didn't happen.
+  const { rows: sessions } = await pool.query(`SELECT id FROM sessions`);
+  assert.equal(sessions.length, 0);
 });
 
 test('login with unknown email returns the same generic error', async () => {
