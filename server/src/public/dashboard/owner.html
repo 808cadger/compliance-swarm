@@ -3,7 +3,7 @@
 <body>
   <h1>Owner / Admin Dashboard</h1>
   <p>You are logged in as an Owner/Admin. User management and company-wide rollups land here in a later build.</p>
-  <form action="/api/auth/logout" method="post" onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
+  <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
     <button type="submit">Log out</button>
   </form>
 </body></html>

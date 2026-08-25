@@ -30,6 +30,8 @@
       });
       if (res.ok) {
         window.location.href = '/dashboard';
+      } else if (res.status === 429) {
+        document.getElementById('error').textContent = 'Too many attempts — please wait a few minutes and try again.';
       } else {
         document.getElementById('error').textContent = 'Invalid email or password.';
       }
