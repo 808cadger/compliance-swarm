@@ -7,6 +7,28 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import dashboardRoutes from './routes/dashboard.js';
 
+// Errors raised while parsing the request itself carry the request's own bytes, and
+// /api/auth/login POSTs {email, password}: a malformed login body means the plaintext
+// password is inside the error object. body-parser attaches the entire unparsed body as
+// err.body, and — less obviously — V8's JSON SyntaxError message quotes a fragment of the
+// offending bytes ("Unexpected token 'M', \"MARKER_SEC\"... is not valid JSON"), which
+// err.stack's first line then repeats. So neither console.error(err) (util.inspect walks into
+// err.body) nor err.message nor err.stack is safe for this class of error.
+//
+// Nothing is lost by withholding them: err.type plus the status identify a body-parser
+// failure exactly, and its message is boilerplate. Any error carrying a body-parser `type`
+// (or a `body`) is therefore logged by identity alone; everything else — our own bugs, pg
+// errors, res.sendFile ENOENT — still logs its full stack, since those messages are built
+// from server-side values, not from raw request bytes.
+function describeErrorForLog(err) {
+  if (!(err instanceof Error)) return `non-Error thrown (${typeof err})`;
+  const status = err.status ?? err.statusCode ?? 500;
+  if (typeof err.type === 'string' || err.body !== undefined) {
+    return `request rejected: ${err.name} type=${err.type ?? 'unknown'} status=${status} (detail withheld: may contain request body)`;
+  }
+  return err.stack ?? `${err.name}: ${err.message}`;
+}
+
 // Exported (rather than inlined in createApp) so tests can exercise it directly against a
 // real res.sendFile ENOENT without needing a route that reads one of the real dashboard
 // HTML files out from under production.
@@ -17,7 +39,7 @@ export function errorHandler(err, req, res, next) {
   // the socket.
   if (res.headersSent) return next(err);
 
-  console.error(err);
+  console.error(`${req.method} ${req.path} ->`, describeErrorForLog(err));
   // Express and its middleware attach a status to errors that are the *client's* fault:
   // express.json() throws SyntaxError with status 400 on a malformed body and 413 over the
   // size limit, res.sendFile forwards ENOENT as 404. Flattening those to 500 both lies to
@@ -30,7 +52,8 @@ export function errorHandler(err, req, res, next) {
   // failure) — so expose can't be trusted as the sole guard here. No route in this app
   // relies on a custom message surfacing through this handler: code that wants to tell the
   // client something specific replies directly instead of throwing. So every 4xx gets a
-  // fixed, status-appropriate message instead — the real error is already in the log above.
+  // fixed, status-appropriate message instead; the log line above identifies which error it
+  // was (by type, for the body-parser family whose detail is withheld there too).
   const status = err.status ?? err.statusCode ?? 500;
   if (status < 500) {
     const message = status === 404
