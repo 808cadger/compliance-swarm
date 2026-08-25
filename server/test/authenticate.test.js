@@ -10,15 +10,23 @@ import authenticate from '../src/middleware/authenticate.js';
 import requireRole from '../src/middleware/requireRole.js';
 
 const pool = getTestPool();
-const COOKIE_SECRET = 'test-secret';
 
 beforeEach(async () => { await resetDb(pool); });
 after(async () => { await pool.end(); });
 
 function buildApp() {
   const app = express();
-  app.use(cookieParser(COOKIE_SECRET));
+  app.use(cookieParser(process.env.COOKIE_SECRET));
   app.get('/protected', authenticate(pool), requireRole('owner_admin'), (req, res) => {
+    res.json({ role: req.user.role });
+  });
+  return app;
+}
+
+function buildAppNoRoles() {
+  const app = express();
+  app.use(cookieParser(process.env.COOKIE_SECRET));
+  app.get('/protected', authenticate(pool), requireRole(), (req, res) => {
     res.json({ role: req.user.role });
   });
   return app;
@@ -32,7 +40,7 @@ async function seedUserAndCookie(role = 'owner_admin') {
     [tenant.id, role],
   );
   const { token } = await createSession(pool, { userId: user.id, tenantId: tenant.id });
-  return `session=s:${sign.sign(token, COOKIE_SECRET)}`;
+  return `session=s:${sign.sign(token, process.env.COOKIE_SECRET)}`;
 }
 
 test('no cookie -> 401', async () => {
@@ -54,4 +62,12 @@ test('valid session, correct role -> 200', async () => {
     .get('/protected')
     .set('Cookie', [cookie]);
   assert.equal(res.status, 200);
+});
+
+test('requireRole() with no roles denies every authenticated role -> 403', async () => {
+  const cookie = await seedUserAndCookie('owner_admin');
+  const res = await request(buildAppNoRoles())
+    .get('/protected')
+    .set('Cookie', [cookie]);
+  assert.equal(res.status, 403);
 });
