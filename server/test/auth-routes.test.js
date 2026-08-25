@@ -55,12 +55,22 @@ test('logout writes a logout audit row for the session it ends', async () => {
   assert.equal(logout.status, 204);
 
   const { rows } = await pool.query(
-    `SELECT event_type, actor_user_id, tenant_id FROM audit_log ORDER BY id`,
+    `SELECT event_type, actor_user_id, tenant_id, target_type, target_id, metadata, ip_address FROM audit_log ORDER BY id`,
   );
   assert.deepEqual(rows.map(r => r.event_type), ['login_success', 'logout']);
   const logoutRow = rows[1];
-  assert.equal(logoutRow.actor_user_id, userId);
-  assert.equal(logoutRow.tenant_id, tenantId);
+  // The logout handler's writeAudit call only passes tenantId/actorUserId/eventType; every
+  // other column is writeAudit's own default. Asserting the full row (not just the three
+  // explicit fields) proves the call isn't accidentally carrying stray values through too.
+  assert.deepEqual(logoutRow, {
+    event_type: 'logout',
+    actor_user_id: userId,
+    tenant_id: tenantId,
+    target_type: null,
+    target_id: null,
+    metadata: {},
+    ip_address: null,
+  });
 
   // The session must actually be gone, or the audit row records something that didn't happen.
   const { rows: sessions } = await pool.query(`SELECT id FROM sessions`);

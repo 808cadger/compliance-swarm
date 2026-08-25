@@ -1,4 +1,7 @@
 FROM node:20-slim
+# Sensible default if the runtime .env is ever misconfigured or omitted; docker-compose.yml's
+# NODE_ENV=${NODE_ENV} still overrides this in the deployed container as it does today.
+ENV NODE_ENV=production
 WORKDIR /app
 # No glob on package-lock.json: `package-lock.json*` matched zero files just as happily as
 # one, so a missing lockfile produced a green build that had silently re-resolved every
