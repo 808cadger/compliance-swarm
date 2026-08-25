@@ -12,6 +12,12 @@
 #   cd server && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
 # Dev Postgres is then on localhost:5433, dev app on 127.0.0.1:4211.
+#
+# The `name` below pins the Compose project namespace explicitly, so dev/prod separation
+# is structural (guaranteed distinct project) rather than relying on directory-name
+# defaults plus nobody invoking this file from an unexpected working directory.
+name: compliance-swarm-dev
+
 services:
   postgres:
     container_name: compliance-swarm-postgres-dev
