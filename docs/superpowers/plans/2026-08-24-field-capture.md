@@ -422,7 +422,7 @@ test('inactive sites are excluded from the list', async () => {
 });
 ```
 
-Run: `cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/sites.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/sites.test.js`
 Expected: PASS (5 tests)
 
 - [ ] **Step 4: Commit**
@@ -621,7 +621,7 @@ test("today-status does not count yesterday's walkthrough", async () => {
 });
 ```
 
-Run: `cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/walkthroughs.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/walkthroughs.test.js`
 Expected: PASS (6 tests)
 
 - [ ] **Step 4: Commit**
@@ -873,7 +873,7 @@ These tests write real files, and `MEDIA_DIR`'s default (`/data/media`) only exi
 mkdir -p /tmp/compliance-swarm-test-media
 ```
 
-Run: `cd server && MEDIA_DIR=/tmp/compliance-swarm-test-media TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/media.test.js`
+Run: `cd server && MEDIA_DIR=/tmp/compliance-swarm-test-media DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/media.test.js`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
@@ -973,7 +973,7 @@ test('owner_admin can retrieve any media in their tenant', async () => {
 });
 ```
 
-Run: `cd server && MEDIA_DIR=/tmp/compliance-swarm-test-media TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/media.test.js`
+Run: `cd server && MEDIA_DIR=/tmp/compliance-swarm-test-media DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/media.test.js`
 Expected: PASS (8 tests total in this file)
 
 - [ ] **Step 3: Commit**
@@ -1151,7 +1151,7 @@ Find the existing test asserting `200` for `GET /dashboard/supervisor` and exten
 
 Add this line to that existing test (do not create a new test — the route-level 200/403/401 coverage already exists from the backend foundation; this just confirms the content actually changed).
 
-Run: `cd server && TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/dashboard-routes.test.js`
+Run: `cd server && DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret node --test test/dashboard-routes.test.js`
 Expected: PASS (unchanged count, all green)
 
 - [ ] **Step 3: Commit**
