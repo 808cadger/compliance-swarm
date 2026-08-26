@@ -10,3 +10,9 @@ if (!process.env.TEST_DATABASE_URL) {
 }
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+
+// media.js reads this at import time to size multer's upload limit. Production leaves it
+// unset and gets the real 500MB ceiling; tests get a small one so the 413 path can be
+// exercised without writing a real oversized file to disk. Fixtures used elsewhere in the
+// suite (sample.jpg, disguised.jpg) are well under this.
+process.env.MAX_UPLOAD_BYTES ??= String(10 * 1024);

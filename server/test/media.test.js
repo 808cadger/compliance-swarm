@@ -89,6 +89,28 @@ test('uploading to a walkthrough in another tenant returns 404, not 403', async 
   assert.equal(res.status, 404);
 });
 
+test('an oversized upload returns 413 with a consistent JSON envelope, not a 500', async () => {
+  const { cookie, walkthroughId } = await seedWalkthrough();
+  const filesBefore = await fs.readdir(MEDIA_DIR);
+  // test/helpers/setup-env.js caps MAX_UPLOAD_BYTES at 10KB for the test run; this buffer
+  // is well past that without needing to write a real 500MB file.
+  const oversized = Buffer.alloc(20 * 1024, 'x');
+
+  const res = await request(createApp())
+    .post(`/api/walkthroughs/${walkthroughId}/media`)
+    .set('Cookie', [cookie])
+    .attach('file', oversized, 'too-big.mp4');
+
+  assert.equal(res.status, 413);
+  assert.equal(res.body.error.code, 'file_too_large');
+
+  const { rows } = await pool.query(`SELECT count(*) FROM media`);
+  assert.equal(rows[0].count, '0');
+
+  const filesAfter = await fs.readdir(MEDIA_DIR);
+  assert.equal(filesAfter.length, filesBefore.length);
+});
+
 test('a successful upload writes an upload row to audit_log', async () => {
   const { cookie, walkthroughId, tenantId } = await seedWalkthrough();
   const res = await request(createApp())
