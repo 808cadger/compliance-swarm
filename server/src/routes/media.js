@@ -7,7 +7,7 @@ import authenticate from '../middleware/authenticate.js';
 import requireRole from '../middleware/requireRole.js';
 import { asyncRoute } from '../asyncRoute.js';
 import { writeAudit } from '../audit.js';
-import { MEDIA_DIR, generateStorageKey } from '../storage.js';
+import { MEDIA_DIR, generateStorageKey, resolveMediaPath } from '../storage.js';
 
 // Overridable so tests can exercise the 413 path without uploading a real 500MB file.
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES) || 500 * 1024 * 1024;
@@ -97,6 +97,22 @@ export default function mediaRoutes({ pool }) {
       res.status(201).json(media);
     }),
   );
+
+  router.get('/media/:id', requireRole('supervisor', 'owner_admin'), asyncRoute(async (req, res) => {
+    const scopedToSelf = req.user.role === 'supervisor';
+    const { rows } = await pool.query(
+      `SELECT m.storage_key, m.mime_type
+       FROM media m
+       JOIN walkthroughs w ON w.id = m.walkthrough_id
+       WHERE m.id = $1 AND m.tenant_id = $2 AND ($3 = false OR w.supervisor_id = $4)`,
+      [req.params.id, req.user.tenantId, scopedToSelf, req.user.id],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: { code: 'not_found', message: 'media not found' } });
+    }
+    res.type(rows[0].mime_type);
+    res.sendFile(resolveMediaPath(rows[0].storage_key));
+  }));
 
   return router;
 }

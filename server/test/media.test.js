@@ -126,3 +126,48 @@ test('a successful upload writes an upload row to audit_log', async () => {
   assert.equal(rows[0].target_type, 'media');
   assert.equal(rows[0].target_id, res.body.id);
 });
+
+test('the uploader can retrieve their own uploaded media with the correct content type', async () => {
+  const { cookie, walkthroughId } = await seedWalkthrough();
+  const upload = await request(createApp())
+    .post(`/api/walkthroughs/${walkthroughId}/media`)
+    .set('Cookie', [cookie])
+    .attach('file', SAMPLE_JPG);
+
+  const res = await request(createApp()).get(`/api/media/${upload.body.id}`).set('Cookie', [cookie]);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-type'], 'image/jpeg');
+  assert.ok(res.body.length > 0 || res.text.length > 0);
+});
+
+test("a different supervisor cannot retrieve another supervisor's media", async () => {
+  const owner = await seedWalkthrough('supervisor');
+  const upload = await request(createApp())
+    .post(`/api/walkthroughs/${owner.walkthroughId}/media`)
+    .set('Cookie', [owner.cookie])
+    .attach('file', SAMPLE_JPG);
+
+  const stranger = await seedWalkthrough('supervisor');
+  const res = await request(createApp()).get(`/api/media/${upload.body.id}`).set('Cookie', [stranger.cookie]);
+  assert.equal(res.status, 404);
+});
+
+test('owner_admin can retrieve any media in their tenant', async () => {
+  const sup = await seedWalkthrough('supervisor');
+  const upload = await request(createApp())
+    .post(`/api/walkthroughs/${sup.walkthroughId}/media`)
+    .set('Cookie', [sup.cookie])
+    .attach('file', SAMPLE_JPG);
+
+  const hash = await hashPassword('x');
+  await pool.query(
+    `INSERT INTO users (tenant_id, email, password_hash, role, display_name) VALUES ($1, 'owner@test.co', $2, 'owner_admin', 'Owner')`,
+    [sup.tenantId, hash],
+  );
+  const { rows: [ownerUser] } = await pool.query(`SELECT id FROM users WHERE email = 'owner@test.co'`);
+  const { token } = await createSession(pool, { userId: ownerUser.id, tenantId: sup.tenantId });
+  const ownerCookie = `session=s:${sign.sign(token, process.env.COOKIE_SECRET)}`;
+
+  const res = await request(createApp()).get(`/api/media/${upload.body.id}`).set('Cookie', [ownerCookie]);
+  assert.equal(res.status, 200);
+});
