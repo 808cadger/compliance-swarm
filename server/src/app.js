@@ -6,6 +6,7 @@ import { LoginRateLimiter } from './rateLimit.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import siteRoutes from './routes/sites.js';
+import walkthroughRoutes from './routes/walkthroughs.js';
 import dashboardRoutes from './routes/dashboard.js';
 
 // Errors raised while parsing the request itself carry the request's own bytes, and
@@ -113,6 +114,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes({ pool, rateLimiter }));
   app.use('/api/users', userRoutes({ pool }));
   app.use('/api/sites', siteRoutes({ pool }));
+  app.use('/api/walkthroughs', walkthroughRoutes({ pool }));
   app.use(dashboardRoutes({ pool }));
 
   // Everything below must stay LAST, after every route mount: Express dispatches middleware
