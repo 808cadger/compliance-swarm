@@ -4,8 +4,9 @@ import path from 'node:path';
 export const MEDIA_DIR = process.env.MEDIA_DIR || '/data/media';
 
 export function generateStorageKey(extension) {
-  const clean = extension.replace(/^\./, '').toLowerCase();
-  return `${crypto.randomBytes(16).toString('hex')}.${clean}`;
+  const clean = extension.replace(/^\./, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const safe = clean || 'bin';
+  return `${crypto.randomBytes(16).toString('hex')}.${safe}`;
 }
 
 export function resolveMediaPath(storageKey) {
