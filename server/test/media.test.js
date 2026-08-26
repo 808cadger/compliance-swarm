@@ -147,8 +147,15 @@ test("a different supervisor cannot retrieve another supervisor's media", async 
     .set('Cookie', [owner.cookie])
     .attach('file', SAMPLE_JPG);
 
-  const stranger = await seedWalkthrough('supervisor');
-  const res = await request(createApp()).get(`/api/media/${upload.body.id}`).set('Cookie', [stranger.cookie]);
+  const hash = await hashPassword('x');
+  const { rows: [stranger] } = await pool.query(
+    `INSERT INTO users (tenant_id, email, password_hash, role, display_name) VALUES ($1, 'stranger@test.co', $2, 'supervisor', 'Stranger') RETURNING id`,
+    [owner.tenantId, hash],
+  );
+  const { token } = await createSession(pool, { userId: stranger.id, tenantId: owner.tenantId });
+  const strangerCookie = `session=s:${sign.sign(token, process.env.COOKIE_SECRET)}`;
+
+  const res = await request(createApp()).get(`/api/media/${upload.body.id}`).set('Cookie', [strangerCookie]);
   assert.equal(res.status, 404);
 });
 
