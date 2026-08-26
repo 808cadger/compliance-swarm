@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS assignments (
   assigned_date   date NOT NULL,
   created_by      uuid NOT NULL REFERENCES users(id),
   created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_by      uuid NOT NULL REFERENCES users(id),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, site_id, slot, assigned_date)
 );
 CREATE INDEX IF NOT EXISTS assignments_supervisor_today_idx ON assignments (tenant_id, supervisor_id, assigned_date);
@@ -56,6 +58,16 @@ for the same combination is the reassignment path (see API), not a conflict
 to reject. This resolves a real gap found during design review: without it, a
 superseded assignment would keep showing on the original supervisor's
 reminder list as if still valid.
+
+`created_at`/`created_by` are set once at first insert and never touched
+again by the upsert (see API) — they answer "who first assigned this slot,
+and when." `updated_at`/`updated_by` are bumped on every reassignment —
+they answer "who currently has it, and since when." Without this split, the
+`ON CONFLICT DO UPDATE` in the API below would silently overwrite both
+columns on every reassignment, leaving `created_at`/`created_by` names that
+promise immutable creation semantics they don't actually have — a trap for
+whoever next reads this table expecting a stable creation record (e.g. a
+future audit/report feature).
 
 `tenant_id` is denormalized onto the row, matching every other table in this
 schema — one indexed lookup for authorization, no join required.
@@ -85,14 +97,16 @@ POST /api/assignments        (owner_admin only)
     - assignedDate, if given, is a well-formed YYYY-MM-DD date — no range check (past dates allowed,
       for backfill; future dates allowed, for advance scheduling)
   UPSERTs on (tenant_id, site_id, slot, assigned_date): INSERT ... ON CONFLICT (tenant_id, site_id, slot,
-  assigned_date) DO UPDATE SET supervisor_id, created_by, created_at. A second POST for the same
-  site+slot+day replaces the prior assignment's supervisor — this is the only reassign/cancel-and-replace
-  path; there is no separate PATCH or DELETE route.
-  → 200 { id, siteId, supervisorId, slot, assignedDate, createdAt } — always 200, whether this was a
-    fresh insert or a replacement of an existing row. This endpoint's semantic is "set the assignment for
-    this slot," not "create a resource," so the two cases aren't meaningfully different to the caller;
-    avoids needing Postgres insert-vs-update detection (e.g. `xmax = 0`) for a distinction with no
-    consumer.
+  assigned_date) DO UPDATE SET supervisor_id = EXCLUDED.supervisor_id, updated_by = EXCLUDED.updated_by,
+  updated_at = now(). Note `created_by`/`created_at` are NOT in the DO UPDATE SET list — they keep their
+  original first-insert values across any number of reassignments; only `updated_by`/`updated_at` move.
+  A second POST for the same site+slot+day replaces the prior assignment's supervisor — this is the only
+  reassign/cancel-and-replace path; there is no separate PATCH or DELETE route.
+  → 200 { id, siteId, supervisorId, slot, assignedDate, createdAt, createdBy, updatedAt, updatedBy } —
+    always 200, whether this was a fresh insert or a replacement of an existing row. This endpoint's
+    semantic is "set the assignment for this slot," not "create a resource," so the two cases aren't
+    meaningfully different to the caller; avoids needing Postgres insert-vs-update detection (e.g.
+    `xmax = 0`) for a distinction with no consumer.
   → 400 bad_request if siteId/supervisorId/slot/assignedDate is invalid
 
 GET /api/assignments?date=YYYY-MM-DD&siteId=...   (owner_admin only; both filters optional,
@@ -123,9 +137,6 @@ this was verified against the current route file before writing this spec,
 specifically because a hidden new-route dependency inside a "just replace the
 dashboard placeholder" task would be a scope surprise the way Task 6's brief
 had one.
-
-Same-supervisor double-booked across two different sites/slots on one day:
-not validated — informational only, so harmless if it happens.
 
 ## Frontend
 
@@ -164,6 +175,10 @@ New `server/test/assignments.test.js`, mirroring the patterns already used in
   different `supervisorId` both returns 200 (not 201 the first time and 200
   the second — always 200) and replaces the row, verified by re-fetching via
   `GET /api/assignments`, not by trusting the absence of an error
+- `created_at`/`created_by` stay equal to their values from the first POST
+  across a second (reassigning) POST, while `updated_at`/`updated_by` change
+  to reflect the second POST — proves the immutable/mutable split actually
+  behaves as designed, not just that the constraint exists
 - `GET /api/assignments` respects tenant scoping (another tenant's assignment
   never appears) and the `siteId`/`date` filters
 - `GET /api/assignments/today` (supervisor) returns only the caller's own
