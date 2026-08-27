@@ -709,7 +709,7 @@ cd server
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 MEDIA_DIR=/tmp/compliance-swarm-test-media TEST_DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test COOKIE_SECRET=test-secret npm test
 ```
-Expected: every test from every task in this plan passes, plus the full pre-existing suite (no regressions) — 95/95 (84 pre-existing + 11 from Task 2).
+Expected: every test from every task in this plan passes, plus the full pre-existing suite (no regressions) — 96/96 (84 pre-existing + 11 from Task 2 + 1 from Task 3; Task 4 adds no automated tests).
 
 - [ ] **Step 2: Confirm the schema file is idempotent by re-running it against dev**
 
