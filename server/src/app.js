@@ -6,6 +6,7 @@ import { LoginRateLimiter } from './rateLimit.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import siteRoutes from './routes/sites.js';
+import assignmentRoutes from './routes/assignments.js';
 import walkthroughRoutes from './routes/walkthroughs.js';
 import mediaRoutes from './routes/media.js';
 import dashboardRoutes from './routes/dashboard.js';
@@ -115,6 +116,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes({ pool, rateLimiter }));
   app.use('/api/users', userRoutes({ pool }));
   app.use('/api/sites', siteRoutes({ pool }));
+  app.use('/api/assignments', assignmentRoutes({ pool }));
   app.use('/api/walkthroughs', walkthroughRoutes({ pool }));
   app.use('/api', mediaRoutes({ pool }));
   app.use(dashboardRoutes({ pool }));
