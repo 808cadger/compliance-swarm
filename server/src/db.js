@@ -1,14 +1,14 @@
 import pg from 'pg';
 import { config } from './config.js';
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl });
-
 // "Today" (walkthroughs' today-status, assignments' /today) must roll over at this pilot
 // tenant's local midnight, not the database server's own clock (Etc/UTC) — otherwise it
-// flips mid-workday for this Hawaii-based deployment. Every pooled connection gets this
-// session-level timezone so now()/CURRENT_DATE/date_trunc('day', now()) all agree with the
-// client's actual day. Set synchronously (not awaited) so it's queued on this client ahead
-// of any query the caller submits once pool.connect()/pool.query() hands the client back.
-pool.on('connect', (client) => {
-  client.query("SET TIME ZONE 'Pacific/Honolulu'");
+// flips mid-workday for this Hawaii-based deployment. Set via the Postgres startup packet
+// (libpq-style `options`) rather than a post-connect `SET TIME ZONE` query: the latter races
+// with the caller's own first query on a freshly-opened connection (node-postgres warns
+// "client.query() when the client is already executing a query" when the two interleave),
+// where this way the timezone is active before the connection is usable at all.
+export const pool = new pg.Pool({
+  connectionString: config.databaseUrl,
+  options: '-c TimeZone=Pacific/Honolulu',
 });
