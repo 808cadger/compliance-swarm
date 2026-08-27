@@ -177,11 +177,8 @@ test('completing the assigned walkthrough does not delete or hide the assignment
   const sup = await seedUserWithCookie('supervisor', owner.tenantId, 'sup@test.co');
   const siteId = await seedSite(owner.tenantId);
 
-  await pool.query(
-    `INSERT INTO assignments (tenant_id, site_id, supervisor_id, slot, assigned_date, created_by, updated_by)
-     VALUES ($1, $2, $3, 'morning', CURRENT_DATE, $4, $4)`,
-    [owner.tenantId, siteId, sup.userId, owner.userId],
-  );
+  await request(createApp()).post('/api/assignments').set('Cookie', [owner.cookie])
+    .send({ supervisorId: sup.userId, siteId, slot: 'morning' });
 
   const walkthroughRes = await request(createApp()).post('/api/walkthroughs').set('Cookie', [sup.cookie])
     .send({ siteId, slot: 'morning', notes: 'done' });
