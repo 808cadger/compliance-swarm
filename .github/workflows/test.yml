@@ -1,0 +1,83 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Non-secret, ephemeral CI-only values — same defaults already documented in
+      # .env.example. This Postgres container never leaves the CI job, so there's
+      # nothing here worth protecting as a repo secret.
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          NODE_ENV=development
+          PORT=4210
+          POSTGRES_USER=compliance_swarm
+          POSTGRES_PASSWORD=changeme
+          POSTGRES_DB=compliance_swarm
+          POSTGRES_APP_PASSWORD=changeme-app
+          DATABASE_URL=postgres://compliance_swarm_app:changeme-app@postgres:5432/compliance_swarm
+          COOKIE_SECRET=test-secret
+          TZ=Pacific/Honolulu
+          EOF
+
+      # Brings up Postgres exactly the way local dev does (same compose files, same
+      # override this repo already documents everywhere else). On a brand-new container
+      # every db/init/*.sql,*.sh script runs automatically in order — unlike migrating an
+      # already-initialized volume (production's case), a fresh CI container needs no
+      # manual migration step at all.
+      - name: Start Postgres
+        run: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec compliance-swarm-postgres-dev pg_isready -U compliance_swarm -d compliance_swarm_test > /dev/null 2>&1; then
+              echo "Postgres ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not become ready in time" >&2
+          docker logs compliance-swarm-postgres-dev
+          exit 1
+
+      # 003_test_db.sh only re-runs 001+002 against the _test database (by name, not by
+      # scanning db/init) — every migration numbered 004+ has to be applied to it
+      # explicitly, the same manual step every task's local dev verification needed too.
+      # The main `compliance_swarm` database doesn't need this: Postgres's own
+      # docker-entrypoint runs every numbered script against it automatically on a fresh
+      # volume.
+      - name: Apply post-001/002 migrations to the test database
+        run: |
+          for f in db/init/00[4-9]_*.sql; do
+            [ -e "$f" ] || continue
+            docker exec -i compliance-swarm-postgres-dev psql -U compliance_swarm -d compliance_swarm_test < "$f"
+          done
+          for f in db/init/00[4-9]_*.sh; do
+            [ -e "$f" ] || continue
+            docker exec -e POSTGRES_USER=compliance_swarm -e POSTGRES_DB=compliance_swarm_test compliance-swarm-postgres-dev bash "/docker-entrypoint-initdb.d/$(basename "$f")"
+          done
+
+      - run: npm ci
+
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test
+          COOKIE_SECRET: test-secret
+        run: npm test
