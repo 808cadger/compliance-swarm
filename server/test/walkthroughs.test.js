@@ -97,3 +97,23 @@ test("today-status does not count yesterday's walkthrough", async () => {
   const res = await request(createApp()).get('/api/walkthroughs/today-status').set('Cookie', [cookie]);
   assert.deepEqual(res.body, { morningDone: false, afternoonDone: false });
 });
+
+test('an owner assigning a walkthrough does not make today-status report it as done', async () => {
+  const sup = await seedUserWithCookie('supervisor', 'sup@test.co');
+  const siteId = await seedSite(sup.tenantId);
+
+  const hash = await hashPassword('x');
+  const { rows: [ownerRow] } = await pool.query(
+    `INSERT INTO users (tenant_id, email, password_hash, role, display_name) VALUES ($1, 'owner@test.co', $2, 'owner_admin', 'Owner') RETURNING id`,
+    [sup.tenantId, hash],
+  );
+  const { token } = await createSession(pool, { userId: ownerRow.id, tenantId: sup.tenantId });
+  const ownerCookie = `session=s:${sign.sign(token, process.env.COOKIE_SECRET)}`;
+
+  const assignRes = await request(createApp()).post('/api/assignments').set('Cookie', [ownerCookie])
+    .send({ supervisorId: sup.userId, siteId, slot: 'morning' });
+  assert.equal(assignRes.status, 200);
+
+  const res = await request(createApp()).get('/api/walkthroughs/today-status').set('Cookie', [sup.cookie]);
+  assert.deepEqual(res.body, { morningDone: false, afternoonDone: false });
+});

@@ -171,3 +171,24 @@ test('GET /api/assignments/today returns an empty array when nothing is assigned
   const res = await request(createApp()).get('/api/assignments/today').set('Cookie', [sup.cookie]);
   assert.deepEqual(res.body, []);
 });
+
+test('completing the assigned walkthrough does not delete or hide the assignment reminder', async () => {
+  const owner = await seedUserWithCookie('owner_admin');
+  const sup = await seedUserWithCookie('supervisor', owner.tenantId, 'sup@test.co');
+  const siteId = await seedSite(owner.tenantId);
+
+  await pool.query(
+    `INSERT INTO assignments (tenant_id, site_id, supervisor_id, slot, assigned_date, created_by, updated_by)
+     VALUES ($1, $2, $3, 'morning', CURRENT_DATE, $4, $4)`,
+    [owner.tenantId, siteId, sup.userId, owner.userId],
+  );
+
+  const walkthroughRes = await request(createApp()).post('/api/walkthroughs').set('Cookie', [sup.cookie])
+    .send({ siteId, slot: 'morning', notes: 'done' });
+  assert.equal(walkthroughRes.status, 201);
+
+  const res = await request(createApp()).get('/api/assignments/today').set('Cookie', [sup.cookie]);
+  assert.equal(res.body.length, 1);
+  assert.equal(res.body[0].siteId, siteId);
+  assert.equal(res.body[0].slot, 'morning');
+});
