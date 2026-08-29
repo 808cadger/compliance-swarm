@@ -44,10 +44,16 @@ jobs:
       - name: Start Postgres
         run: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
+      # `pg_isready` can report success against Postgres's own internal, temporary
+      # setup-phase server (the one docker-entrypoint-initdb.d scripts run against on a
+      # first-time volume init) — that instance then briefly disappears while the real,
+      # long-running server starts, which raced with this exact step once already. Probing
+      # with the same real query the next step needs can't have that race: it only
+      # succeeds once the final server, with the test database and its socket, is truly up.
       - name: Wait for Postgres
         run: |
           for i in $(seq 1 30); do
-            if docker exec compliance-swarm-postgres-dev pg_isready -U compliance_swarm -d compliance_swarm_test > /dev/null 2>&1; then
+            if docker exec compliance-swarm-postgres-dev psql -U compliance_swarm -d compliance_swarm_test -c 'SELECT 1' > /dev/null 2>&1; then
               echo "Postgres ready"
               exit 0
             fi
