@@ -42,6 +42,8 @@ services:
       COOKIE_SECRET: ${COOKIE_SECRET}
     ports:
       - "127.0.0.1:${PORT}:${PORT}"
+    volumes:
+      - media_data:/data/media
     networks:
       - compliance_swarm
 
@@ -51,3 +53,4 @@ networks:
 
 volumes:
   postgres_data:
+  media_data:

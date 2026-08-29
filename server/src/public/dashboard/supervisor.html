@@ -1,9 +1,159 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Supervisor Dashboard</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supervisor — Walkthrough</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 1rem; }
+  .banner { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.95rem; }
+  .banner.pending { background: #fdecea; color: #7a271a; }
+  .banner.done { background: #e6f4ea; color: #1e4620; }
+  .banner.reminder { background: #e8f0fe; color: #1a3a6b; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
+  input, select, textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
+  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; }
+  #captureList { list-style: none; padding: 0; margin-top: 0.75rem; }
+  #captureList li { padding: 0.4rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; display: flex; justify-content: space-between; }
+  .ok { color: #1e4620; }
+  .err { color: #7a271a; }
+</style>
+</head>
 <body>
-  <h1>Supervisor Dashboard</h1>
-  <p>You are logged in as a Supervisor. The daily walkthrough capture flow lands here in a later build.</p>
+  <h1>Supervisor</h1>
+
+  <div id="banners"></div>
+  <div id="assignmentReminders"></div>
+
+  <fieldset>
+    <legend>Start Walkthrough</legend>
+    <form id="start-form">
+      <label>Site
+        <select name="siteId" id="siteSelect" required></select>
+      </label>
+      <label>Slot
+        <select name="slot" id="slotSelect" required>
+          <option value="morning">Morning</option>
+          <option value="afternoon">Afternoon</option>
+        </select>
+      </label>
+      <label>Notes
+        <textarea name="notes" rows="2"></textarea>
+      </label>
+      <button type="submit">Start</button>
+    </form>
+  </fieldset>
+
+  <fieldset id="captureSection" hidden>
+    <legend>Capture</legend>
+    <label>Add photo
+      <input type="file" accept="image/*" capture="environment" id="photoInput">
+    </label>
+    <label>Add video
+      <input type="file" accept="video/*" capture="environment" id="videoInput">
+    </label>
+    <ul id="captureList"></ul>
+  </fieldset>
+
   <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
     <button type="submit">Log out</button>
   </form>
-</body></html>
+
+  <script>
+    let currentWalkthroughId = null;
+
+    function nowSlotDefault() {
+      return new Date().getHours() < 12 ? 'morning' : 'afternoon';
+    }
+
+    async function loadBanners() {
+      const res = await fetch('/api/walkthroughs/today-status');
+      if (!res.ok) return;
+      const { morningDone, afternoonDone } = await res.json();
+      const el = document.getElementById('banners');
+      el.innerHTML = '';
+      for (const [label, done] of [['Morning walkthrough', morningDone], ['Afternoon walkthrough', afternoonDone]]) {
+        const div = document.createElement('div');
+        div.className = 'banner ' + (done ? 'done' : 'pending');
+        div.textContent = done ? `${label}: done ✓` : `${label}: not done yet`;
+        el.appendChild(div);
+      }
+    }
+
+    async function loadSites() {
+      const res = await fetch('/api/sites');
+      if (!res.ok) return;
+      const sites = await res.json();
+      const select = document.getElementById('siteSelect');
+      select.innerHTML = '';
+      for (const site of sites) {
+        const opt = document.createElement('option');
+        opt.value = site.id;
+        opt.textContent = site.name;
+        select.appendChild(opt);
+      }
+    }
+
+    async function loadAssignments() {
+      const res = await fetch('/api/assignments/today');
+      if (!res.ok) return;
+      const rows = await res.json();
+      const el = document.getElementById('assignmentReminders');
+      el.innerHTML = '';
+      for (const a of rows) {
+        const div = document.createElement('div');
+        div.className = 'banner reminder';
+        div.textContent = `Assigned to you today: ${a.siteName} (${a.slot === 'morning' ? 'Morning' : 'Afternoon'})`;
+        el.appendChild(div);
+      }
+    }
+
+    document.getElementById('slotSelect').value = nowSlotDefault();
+    loadBanners();
+    loadSites();
+    loadAssignments();
+
+    document.getElementById('start-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const res = await fetch('/api/walkthroughs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId: form.get('siteId'), slot: form.get('slot'), notes: form.get('notes') }),
+      });
+      if (res.ok) {
+        const walkthrough = await res.json();
+        currentWalkthroughId = walkthrough.id;
+        document.getElementById('captureSection').hidden = false;
+      }
+    });
+
+    async function uploadFile(file) {
+      const li = document.createElement('li');
+      li.textContent = file.name + ' — uploading…';
+      document.getElementById('captureList').prepend(li);
+
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch(`/api/walkthroughs/${currentWalkthroughId}/media`, { method: 'POST', body });
+      if (res.ok) {
+        li.textContent = file.name + ' — uploaded ✓';
+        li.className = 'ok';
+      } else {
+        li.textContent = file.name + ' — failed';
+        li.className = 'err';
+      }
+    }
+
+    document.getElementById('photoInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) uploadFile(e.target.files[0]);
+      e.target.value = '';
+    });
+    document.getElementById('videoInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) uploadFile(e.target.files[0]);
+      e.target.value = '';
+    });
+  </script>
+</body>
+</html>

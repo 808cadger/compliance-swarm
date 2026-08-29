@@ -46,3 +46,17 @@ test('accounting hitting their own dashboard gets 200', async () => {
   const res = await request(createApp()).get('/dashboard/accounting').set('Cookie', [cookie]);
   assert.equal(res.status, 200);
 });
+
+test('supervisor hitting their own dashboard gets 200 with real content', async () => {
+  const cookie = await seedUserWithCookie('supervisor');
+  const res = await request(createApp()).get('/dashboard/supervisor').set('Cookie', [cookie]);
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(res.text, /land here in a later build/);
+});
+
+test('owner_admin hitting their own dashboard gets 200 with real content', async () => {
+  const cookie = await seedUserWithCookie('owner_admin');
+  const res = await request(createApp()).get('/dashboard/owner').set('Cookie', [cookie]);
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(res.text, /land here in a later build/);
+});

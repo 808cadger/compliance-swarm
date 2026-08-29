@@ -1,0 +1,93 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Non-secret, ephemeral CI-only values — same defaults already documented in
+      # .env.example. This Postgres container never leaves the CI job, so there's
+      # nothing here worth protecting as a repo secret.
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          NODE_ENV=development
+          PORT=4210
+          POSTGRES_USER=compliance_swarm
+          POSTGRES_PASSWORD=changeme
+          POSTGRES_DB=compliance_swarm
+          POSTGRES_APP_PASSWORD=changeme-app
+          DATABASE_URL=postgres://compliance_swarm_app:changeme-app@postgres:5432/compliance_swarm
+          COOKIE_SECRET=test-secret
+          TZ=Pacific/Honolulu
+          EOF
+
+      # Brings up Postgres exactly the way local dev does (same compose files, same
+      # override this repo already documents everywhere else). On a brand-new container
+      # every db/init/*.sql,*.sh script runs automatically in order — unlike migrating an
+      # already-initialized volume (production's case), a fresh CI container needs no
+      # manual migration step at all.
+      - name: Start Postgres
+        run: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+
+      # 003_test_db.sh only re-runs 001+002 against the _test database (by name, not by
+      # scanning db/init) — every migration numbered 004+ has to be applied to it
+      # explicitly, the same manual step every task's local dev verification needed too.
+      # The main `compliance_swarm` database doesn't need this: Postgres's own
+      # docker-entrypoint runs every numbered script against it automatically on a fresh
+      # volume.
+      #
+      # No separate "wait for Postgres" step: on a fresh volume, the container's internal
+      # temp instance (used to run docker-entrypoint-initdb.d/001-007 in sequence) responds
+      # to queries *between* each script — including against a freshly-created
+      # compliance_swarm_test — well before the whole sequence (through 007) is actually
+      # done, then briefly vanishes while the final server starts. A readiness probe here
+      # observed exactly that: success, then the identical query failing ~100ms later
+      # ("socket ... No such file or directory"). Rather than chase that internal timing,
+      # retry this whole block: every statement in it is already idempotent
+      # (`IF NOT EXISTS` / `GRANT`), so a retry harmlessly no-ops whatever a partial prior
+      # attempt already applied.
+      - name: Apply post-001/002 migrations to the test database
+        run: |
+          for attempt in $(seq 1 30); do
+            if (
+              for f in db/init/00[4-9]_*.sql; do
+                [ -e "$f" ] || continue
+                docker exec -i compliance-swarm-postgres-dev psql -v ON_ERROR_STOP=1 -U compliance_swarm -d compliance_swarm_test < "$f"
+              done
+              for f in db/init/00[4-9]_*.sh; do
+                [ -e "$f" ] || continue
+                docker exec -e POSTGRES_USER=compliance_swarm -e POSTGRES_DB=compliance_swarm_test compliance-swarm-postgres-dev bash "/docker-entrypoint-initdb.d/$(basename "$f")"
+              done
+            ); then
+              echo "Migrations applied (attempt $attempt)"
+              exit 0
+            fi
+            echo "Attempt $attempt failed, retrying..."
+            sleep 1
+          done
+          echo "Migrations did not apply successfully after 30 attempts" >&2
+          docker logs compliance-swarm-postgres-dev
+          exit 1
+
+      - run: npm ci
+
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm_test
+          COOKIE_SECRET: test-secret
+        run: npm test

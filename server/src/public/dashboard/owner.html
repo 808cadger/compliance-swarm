@@ -1,9 +1,143 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Owner Dashboard</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner — Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
+  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
+  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+  th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
+  .msg.ok { background: #e6f4ea; color: #1e4620; }
+  .msg.err { background: #fdecea; color: #7a271a; }
+</style>
+</head>
 <body>
-  <h1>Owner / Admin Dashboard</h1>
-  <p>You are logged in as an Owner/Admin. User management and company-wide rollups land here in a later build.</p>
+  <h1>Owner / Admin</h1>
+
+  <fieldset>
+    <legend>Assign a Walkthrough</legend>
+    <form id="assign-form">
+      <label>Supervisor
+        <select name="supervisorId" id="supervisorSelect" required></select>
+      </label>
+      <label>Site
+        <select name="siteId" id="siteSelect" required></select>
+      </label>
+      <label>Slot
+        <select name="slot" id="slotSelect" required>
+          <option value="morning">Morning</option>
+          <option value="afternoon">Afternoon</option>
+        </select>
+      </label>
+      <label>Date
+        <input type="date" name="assignedDate" id="dateInput" required>
+      </label>
+      <button type="submit">Assign</button>
+    </form>
+    <div id="assignMsg"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Today's Assignments</legend>
+    <table>
+      <thead><tr><th>Site</th><th>Supervisor</th><th>Slot</th></tr></thead>
+      <tbody id="assignmentsBody"></tbody>
+    </table>
+  </fieldset>
+
   <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
     <button type="submit">Log out</button>
   </form>
-</body></html>
+
+  <script>
+    function todayLocalDate() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+
+    async function loadSupervisors() {
+      const res = await fetch('/api/users');
+      if (!res.ok) return;
+      const users = await res.json();
+      const select = document.getElementById('supervisorSelect');
+      select.innerHTML = '';
+      for (const user of users) {
+        if (user.role !== 'supervisor' || user.disabledAt) continue;
+        const opt = document.createElement('option');
+        opt.value = user.id;
+        opt.textContent = user.displayName;
+        select.appendChild(opt);
+      }
+    }
+
+    async function loadSites() {
+      const res = await fetch('/api/sites');
+      if (!res.ok) return;
+      const sites = await res.json();
+      const select = document.getElementById('siteSelect');
+      select.innerHTML = '';
+      for (const site of sites) {
+        const opt = document.createElement('option');
+        opt.value = site.id;
+        opt.textContent = site.name;
+        select.appendChild(opt);
+      }
+    }
+
+    async function loadTodaysAssignments() {
+      const res = await fetch('/api/assignments');
+      if (!res.ok) return;
+      const rows = await res.json();
+      const tbody = document.getElementById('assignmentsBody');
+      tbody.innerHTML = '';
+      for (const a of rows) {
+        const tr = document.createElement('tr');
+        const siteTd = document.createElement('td');
+        siteTd.textContent = a.siteName;
+        const supTd = document.createElement('td');
+        supTd.textContent = a.supervisorName;
+        const slotTd = document.createElement('td');
+        slotTd.textContent = a.slot;
+        tr.append(siteTd, supTd, slotTd);
+        tbody.appendChild(tr);
+      }
+    }
+
+    document.getElementById('dateInput').value = todayLocalDate();
+    loadSupervisors();
+    loadSites();
+    loadTodaysAssignments();
+
+    document.getElementById('assign-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const res = await fetch('/api/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supervisorId: form.get('supervisorId'),
+          siteId: form.get('siteId'),
+          slot: form.get('slot'),
+          assignedDate: form.get('assignedDate'),
+        }),
+      });
+      const msg = document.getElementById('assignMsg');
+      if (res.ok) {
+        msg.textContent = 'Assigned.';
+        msg.className = 'msg ok';
+        loadTodaysAssignments();
+      } else {
+        msg.textContent = 'Could not assign — check the fields.';
+        msg.className = 'msg err';
+      }
+    });
+  </script>
+</body>
+</html>
