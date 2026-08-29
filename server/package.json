@@ -6,7 +6,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --import ./test/helpers/setup-env.js --test --test-concurrency=1 test/**/*.test.js"
+    "test": "node --import ./test/helpers/setup-env.js --test --test-concurrency=1 \"test/**/*.test.js\""
   },
   "dependencies": {
     "argon2": "^0.41.1",
