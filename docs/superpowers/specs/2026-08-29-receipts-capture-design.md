@@ -38,8 +38,14 @@ little duplication (a second small storage-metadata table, reusing the same unde
 
 - **Accounting**: full CRUD — create (capture), view (list + retrieve), delete.
 - **Owner/Admin**: view only (list + retrieve) — cannot capture or delete.
-- **Supervisor**: no access at all in this round. (Not insert-only like `audit_log` either —
-  delete is a real, wanted capability for Accounting, not deferred.)
+- **Supervisor**: no access at all in this round — explicitly including reads. `GET
+  /api/receipts` and `GET /api/receipts/:id` return 403 for this role, the same as `POST` and
+  `DELETE` do; "no access" here means every verb, not just the write ones. A future reader
+  should not read "no access" as shorthand for "no write access" and quietly add a read-only
+  path for this role without a deliberate decision to do so — that's part of the
+  Supervisor-to-Accountant handoff design, not this one. (Also worth noting: Accounting's
+  permissions are not insert-only like `audit_log` — delete is a real, wanted capability, not
+  deferred.)
 
 ## Data model
 
