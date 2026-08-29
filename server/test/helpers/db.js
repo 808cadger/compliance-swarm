@@ -59,6 +59,7 @@ export async function resetDb(pool) {
     assertTestDatabaseName(rows[0].name);
 
     await client.query('BEGIN');
+    await client.query('DELETE FROM receipts');
     await client.query('DELETE FROM assignments');
     await client.query('DELETE FROM media');
     await client.query('DELETE FROM walkthroughs');
