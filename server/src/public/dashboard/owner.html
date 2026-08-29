@@ -51,6 +51,14 @@
     </table>
   </fieldset>
 
+  <fieldset>
+    <legend>Filed Receipts &amp; Invoices</legend>
+    <table>
+      <thead><tr><th>Type</th><th>Filed By</th><th>Date</th></tr></thead>
+      <tbody id="receiptsBody"></tbody>
+    </table>
+  </fieldset>
+
   <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
     <button type="submit">Log out</button>
   </form>
@@ -110,10 +118,30 @@
       }
     }
 
+    async function loadReceipts() {
+      const res = await fetch('/api/receipts');
+      if (!res.ok) return;
+      const rows = await res.json();
+      const tbody = document.getElementById('receiptsBody');
+      tbody.innerHTML = '';
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        const kindTd = document.createElement('td');
+        kindTd.textContent = r.kind;
+        const byTd = document.createElement('td');
+        byTd.textContent = r.uploadedByName;
+        const dateTd = document.createElement('td');
+        dateTd.textContent = new Date(r.createdAt).toLocaleDateString();
+        tr.append(kindTd, byTd, dateTd);
+        tbody.appendChild(tr);
+      }
+    }
+
     document.getElementById('dateInput').value = todayLocalDate();
     loadSupervisors();
     loadSites();
     loadTodaysAssignments();
+    loadReceipts();
 
     document.getElementById('assign-form').addEventListener('submit', async (e) => {
       e.preventDefault();
