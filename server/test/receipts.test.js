@@ -149,3 +149,25 @@ test('supervisor gets 403 on every receipts read, not just writes', async () => 
   const getRes = await request(createApp()).get(`/api/receipts/${upload.body.id}`).set('Cookie', [sup.cookie]);
   assert.equal(getRes.status, 403);
 });
+
+test('filing and deleting a receipt both write audit_log rows', async () => {
+  const acct = await seedUserWithCookie('accounting');
+  const upload = await request(createApp()).post('/api/receipts').set('Cookie', [acct.cookie])
+    .field('kind', 'receipt').attach('file', SAMPLE_JPG);
+
+  const { rows: uploadRows } = await pool.query(
+    `SELECT event_type, target_type, target_id FROM audit_log WHERE tenant_id = $1 AND event_type = 'upload' AND target_type = 'receipt'`,
+    [acct.tenantId],
+  );
+  assert.equal(uploadRows.length, 1);
+  assert.equal(uploadRows[0].target_id, upload.body.id);
+
+  await request(createApp()).delete(`/api/receipts/${upload.body.id}`).set('Cookie', [acct.cookie]);
+
+  const { rows: deleteRows } = await pool.query(
+    `SELECT event_type, target_type, target_id FROM audit_log WHERE tenant_id = $1 AND event_type = 'delete' AND target_type = 'receipt'`,
+    [acct.tenantId],
+  );
+  assert.equal(deleteRows.length, 1);
+  assert.equal(deleteRows[0].target_id, upload.body.id);
+});

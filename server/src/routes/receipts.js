@@ -6,6 +6,7 @@ import path from 'node:path';
 import authenticate from '../middleware/authenticate.js';
 import requireRole from '../middleware/requireRole.js';
 import { asyncRoute } from '../asyncRoute.js';
+import { writeAudit } from '../audit.js';
 import * as storage from '../storage.js';
 
 const VALID_KINDS = ['receipt', 'invoice'];
@@ -86,6 +87,11 @@ export default function receiptRoutes({ pool }) {
         throw err;
       }
 
+      await writeAudit(pool, {
+        tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'upload',
+        targetType: 'receipt', targetId: receipt.id, metadata: { kind },
+      });
+
       res.status(201).json(receipt);
     }),
   );
@@ -129,6 +135,12 @@ export default function receiptRoutes({ pool }) {
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
     }
+
+    await writeAudit(pool, {
+      tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'delete',
+      targetType: 'receipt', targetId: req.params.id, metadata: {},
+    });
+
     res.status(204).end();
   }));
 
