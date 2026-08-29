@@ -17,6 +17,8 @@ const ALLOWED = new Map([
   ['image/png', 'photo'],
   ['image/heic', 'photo'],
   ['image/heif', 'photo'],
+  ['image/heic-sequence', 'photo'],
+  ['image/heif-sequence', 'photo'],
   ['video/mp4', 'video'],
   ['video/quicktime', 'video'],
 ]);
