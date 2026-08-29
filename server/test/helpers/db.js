@@ -15,7 +15,7 @@ function requireTestDatabaseUrl() {
 }
 
 export function getTestPool() {
-  return new pg.Pool({ connectionString: requireTestDatabaseUrl() });
+  return new pg.Pool({ connectionString: requireTestDatabaseUrl(), options: '-c TimeZone=Pacific/Honolulu' });
 }
 
 function getSuperuserConnectionString() {
@@ -50,7 +50,7 @@ export async function resetDb(pool) {
   let cleanupPool = pool;
   const superuserUrl = getSuperuserConnectionString();
   if (superuserUrl) {
-    cleanupPool = new pg.Pool({ connectionString: superuserUrl });
+    cleanupPool = new pg.Pool({ connectionString: superuserUrl, options: '-c TimeZone=Pacific/Honolulu' });
   }
 
   const client = await cleanupPool.connect();
@@ -59,6 +59,7 @@ export async function resetDb(pool) {
     assertTestDatabaseName(rows[0].name);
 
     await client.query('BEGIN');
+    await client.query('DELETE FROM receipts');
     await client.query('DELETE FROM assignments');
     await client.query('DELETE FROM media');
     await client.query('DELETE FROM walkthroughs');

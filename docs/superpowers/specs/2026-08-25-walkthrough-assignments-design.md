@@ -119,14 +119,10 @@ GET /api/assignments/today   (supervisor only)
     [{ siteId, siteName, slot }]
 ```
 
-**"Today" clock note:** `CURRENT_DATE`/`now()` here use the database server's
-timezone (confirmed `Etc/UTC` on this deployment), same as the existing
-`today-status` endpoint. For a Hawaii-based tenant (UTC-10) this means the day
-boundary rolls over at 2pm local time, not midnight. This is a pre-existing
-condition shared with Task 4's `today-status` — not introduced by this
-feature — and is explicitly deferred rather than fixed here; a real fix would
-need a tenant-level timezone concept touching both endpoints together, which
-is out of scope for this task.
+**"Today" clock note:** `CURRENT_DATE`/`now()` here use the app's Postgres
+connection timezone, which is pinned to `Pacific/Honolulu` (see
+`server/src/db.js`), so the day boundary rolls over at local midnight for a
+Hawaii-based tenant. This was fixed, not deferred.
 
 **Existing dependency, confirmed not assumed:** `GET /api/users`
 (`server/src/routes/users.js:46`) already exists, is `requireRole('owner_admin')`,
@@ -150,8 +146,9 @@ current placeholder — same treatment Task 7 gave `supervisor.html`):
   local `new Date()` — this can disagree by a day with the server's
   `CURRENT_DATE` default (used by `GET /api/assignments` when no `date` param
   is given) if the owner's device clock/timezone diverges from the server.
-  Same deferred-TZ tradeoff as above; low risk for a single-tenant deployment,
-  noted rather than silently left to be discovered.
+  Same TZ note as above — the server side is pinned to `Pacific/Honolulu`; a
+  divergent device clock/timezone on the owner's browser is the only remaining
+  edge here.
 - Below the form, a table of today's assignments tenant-wide (`GET
   /api/assignments`, default date=today): site, supervisor, slot columns.
 - Existing logout form unchanged.

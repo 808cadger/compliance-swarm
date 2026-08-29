@@ -51,6 +51,30 @@ test('a genuine JPEG uploads successfully', async () => {
   assert.ok(stat.isFile());
 });
 
+test('an iPhone Live Photo (HEIC-sequence brand) is accepted, not rejected', async () => {
+  const { cookie, walkthroughId } = await seedWalkthrough();
+
+  // Minimal ISO-BMFF ftyp box with the 'hevc' major brand — the brand Apple's HEIC container
+  // format uses for Live Photos specifically (a still bundled with a short motion clip).
+  // Verified directly against the installed file-type version to produce
+  // { ext: 'heic', mime: 'image/heic-sequence' }.
+  const livePhotoBuffer = Buffer.alloc(20);
+  livePhotoBuffer.writeUInt32BE(20, 0);
+  livePhotoBuffer.write('ftyp', 4, 'ascii');
+  livePhotoBuffer.write('hevc', 8, 'ascii');
+  livePhotoBuffer.writeUInt32BE(0, 12);
+  livePhotoBuffer.write('hevc', 16, 'ascii');
+
+  const res = await request(createApp())
+    .post(`/api/walkthroughs/${walkthroughId}/media`)
+    .set('Cookie', [cookie])
+    .attach('file', livePhotoBuffer, 'live-photo.heic');
+
+  assert.equal(res.status, 201);
+  assert.equal(res.body.kind, 'photo');
+  assert.equal(res.body.mimeType, 'image/heic-sequence');
+});
+
 test('a text file renamed to .jpg is rejected by content verification, not left on disk', async () => {
   const { cookie, walkthroughId } = await seedWalkthrough();
   const filesBefore = await fs.readdir(MEDIA_DIR);
