@@ -63,17 +63,19 @@ jobs:
       # attempt already applied.
       - name: Apply post-001/002 migrations to the test database
         run: |
+          apply_migrations() {
+            set -e
+            for f in db/init/00[4-9]_*.sql; do
+              [ -e "$f" ] || continue
+              docker exec -i compliance-swarm-postgres-dev psql -v ON_ERROR_STOP=1 -U compliance_swarm -d compliance_swarm_test < "$f" || return 1
+            done
+            for f in db/init/00[4-9]_*.sh; do
+              [ -e "$f" ] || continue
+              docker exec -e POSTGRES_USER=compliance_swarm -e POSTGRES_DB=compliance_swarm_test compliance-swarm-postgres-dev bash "/docker-entrypoint-initdb.d/$(basename "$f")" || return 1
+            done
+          }
           for attempt in $(seq 1 30); do
-            if (
-              for f in db/init/00[4-9]_*.sql; do
-                [ -e "$f" ] || continue
-                docker exec -i compliance-swarm-postgres-dev psql -v ON_ERROR_STOP=1 -U compliance_swarm -d compliance_swarm_test < "$f"
-              done
-              for f in db/init/00[4-9]_*.sh; do
-                [ -e "$f" ] || continue
-                docker exec -e POSTGRES_USER=compliance_swarm -e POSTGRES_DB=compliance_swarm_test compliance-swarm-postgres-dev bash "/docker-entrypoint-initdb.d/$(basename "$f")"
-              done
-            ); then
+            if apply_migrations; then
               echo "Migrations applied (attempt $attempt)"
               exit 0
             fi
@@ -82,6 +84,18 @@ jobs:
           done
           echo "Migrations did not apply successfully after 30 attempts" >&2
           docker logs compliance-swarm-postgres-dev
+          exit 1
+
+      - name: Wait for Postgres TCP port (the final server, not the init-phase one)
+        run: |
+          for i in $(seq 1 30); do
+            if bash -c 'exec 3<>/dev/tcp/localhost/5433' 2>/dev/null; then
+              echo "Postgres TCP port ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres TCP port never became ready" >&2
           exit 1
 
       - run: npm ci
