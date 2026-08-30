@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Owner — Dashboard</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; }
-  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; color: #1a2b20; }
+  h1 { color: #1a5f38; }
+  fieldset { border: 1px solid #d8ded9; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(26,95,56,0.06); }
+  legend { font-weight: 600; color: #1a5f38; padding: 0 0.4rem; }
   label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
-  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
-  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; }
+  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; background: #1a5f38; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #144a2c; }
   table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
   th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
@@ -18,11 +21,46 @@
   #receiptList { list-style: none; padding: 0; margin-top: 0.75rem; }
   #receiptList li { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   #receiptList img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
-  #receiptList button { margin-left: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+  #receiptList button { margin-left: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; background: #7a271a; }
+  #receiptList button:hover { background: #5c1d13; }
 </style>
 </head>
 <body>
   <h1>Owner / Admin</h1>
+
+  <fieldset>
+    <legend>Add a Site</legend>
+    <form id="site-form">
+      <label>Site name
+        <input type="text" name="name" id="siteNameInput" required>
+      </label>
+      <button type="submit">Add Site</button>
+    </form>
+    <div id="siteMsg"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Add an Employee</legend>
+    <form id="employee-form">
+      <label>Name
+        <input type="text" name="displayName" id="empNameInput" required>
+      </label>
+      <label>Email
+        <input type="email" name="email" id="empEmailInput" required>
+      </label>
+      <label>Temporary password
+        <input type="text" name="tempPassword" id="empPasswordInput" minlength="12" required>
+      </label>
+      <label>Role
+        <select name="role" id="empRoleSelect" required>
+          <option value="supervisor">Supervisor</option>
+          <option value="accounting">Accounting</option>
+        </select>
+      </label>
+      <button type="submit">Add Employee</button>
+    </form>
+    <div id="employeeMsg"></div>
+  </fieldset>
 
   <fieldset>
     <legend>Assign a Walkthrough</legend>
@@ -165,6 +203,49 @@
     loadSites();
     loadTodaysAssignments();
     loadReceipts();
+
+    document.getElementById('site-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('siteNameInput').value;
+      const res = await fetch('/api/sites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const msg = document.getElementById('siteMsg');
+      if (res.ok) {
+        msg.textContent = 'Site added.';
+        msg.className = 'msg ok';
+        document.getElementById('siteNameInput').value = '';
+        loadSites();
+      } else {
+        msg.textContent = 'Could not add that site.';
+        msg.className = 'msg err';
+      }
+    });
+
+    document.getElementById('employee-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const displayName = document.getElementById('empNameInput').value;
+      const email = document.getElementById('empEmailInput').value;
+      const tempPassword = document.getElementById('empPasswordInput').value;
+      const role = document.getElementById('empRoleSelect').value;
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName, email, tempPassword, role }),
+      });
+      const msg = document.getElementById('employeeMsg');
+      if (res.ok) {
+        msg.textContent = 'Employee added.';
+        msg.className = 'msg ok';
+        document.getElementById('employee-form').reset();
+        loadSupervisors();
+      } else {
+        msg.textContent = 'Could not add that employee — check the fields.';
+        msg.className = 'msg err';
+      }
+    });
 
     document.getElementById('assign-form').addEventListener('submit', async (e) => {
       e.preventDefault();
