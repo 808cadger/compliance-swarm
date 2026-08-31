@@ -15,6 +15,9 @@ import mediaRoutes from './routes/media.js';
 import dashboardRoutes from './routes/dashboard.js';
 import processpassRoutes from './routes/processpass.js';
 import auditRoutes from './routes/audit.js';
+import webauthnRoutes from './routes/webauthn.js';
+import processAccessAdminRoutes from './routes/processAccessAdmin.js';
+import siteAssignmentsAdminRoutes from './routes/siteAssignmentsAdmin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +131,9 @@ export function createApp() {
   app.use('/api/receipts', receiptRoutes({ pool }));
   app.use('/api/processpass', processpassRoutes({ pool }));
   app.use('/api/audit', auditRoutes({ pool }));
+  app.use('/api/webauthn', webauthnRoutes({ pool, rateLimiter }));
+  app.use('/api/process-access', processAccessAdminRoutes({ pool }));
+  app.use('/api/site-assignments', siteAssignmentsAdminRoutes({ pool }));
   // Must stay LAST among /api mounts: mediaRoutes is mounted at the bare '/api' prefix (its
   // own routes are under /walkthroughs/:id/media and /media/:id, not a fixed sub-path) and
   // its router runs authenticate() unconditionally for every path under that mount. Express
@@ -141,9 +147,9 @@ export function createApp() {
   // sibling layout (e.g. agents/*.js imports '../shared/...', which imports
   // '../config/model-policy.json') — mounting them here at matching sibling URL paths means
   // every existing relative import resolves unchanged, no per-file rewriting needed.
-  // config.processStaticRoot is unset in the plain Docker image (those directories aren't in
-  // its build context), in which case these simply 404 rather than error — see
-  // docker-compose.dev.yml for how the dev/demo stack supplies it.
+  // config.processStaticRoot only needs setting for a deployment layout other than a plain
+  // checkout or the Docker image (see config.js); either of those already resolves correctly,
+  // and a directory that genuinely doesn't exist here just 404s rather than erroring.
   const staticRoot = config.processStaticRoot ?? path.join(__dirname, '..', '..');
   for (const dir of ['agents', 'shared', 'config', 'templates']) {
     app.use(`/${dir}`, express.static(path.join(staticRoot, dir)));

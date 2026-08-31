@@ -10,12 +10,20 @@ export const config = {
   // rehearsal without accidentally flipping on with NODE_ENV=production elsewhere.
   demoMode: process.env.DEMO_MODE === 'true',
   // Where the repo's static Process prototypes (agents/, shared/, config/, templates/ —
-  // siblings of server/, not under it) live on disk. Unset in the plain Docker image (those
-  // directories aren't in its build context yet), so OfficeSnap/FieldSnap's "Start Process"
-  // links 404 there until it's set — see docker-compose.dev.yml for the dev wiring. Defaults
-  // to the real repo root for every non-Docker run (npm start, npm test), two directories up
-  // from this file's own `server/src`.
+  // siblings of server/, not under it) live on disk. Defaults to the real repo root, which is
+  // correct both for a plain checkout (two directories up from this file's own `server/src`)
+  // and for the Docker image (server/Dockerfile bakes all four in at the matching path) — this
+  // only needs setting for a deployment layout that isn't either of those.
   processStaticRoot: process.env.PROCESS_STATIC_ROOT ?? null,
+  // WebAuthn (passkeys) is origin-bound by design: a credential registered against one
+  // rpID/origin pair will not verify against another. 'localhost'/http://localhost:<port> are
+  // correct for local dev (browsers treat localhost as a secure context without TLS) and wrong
+  // for anything else — a real deployment behind the Cloudflare Tunnel (see app.js's trust
+  // proxy comment) MUST set both to the real public hostname, e.g. rpID
+  // "compliance-swarm.example.com" and origin "https://compliance-swarm.example.com", or every
+  // passkey ceremony will fail verification.
+  webauthnRpId: process.env.WEBAUTHN_RP_ID || 'localhost',
+  webauthnOrigin: process.env.WEBAUTHN_ORIGIN || `http://localhost:${Number(process.env.PORT ?? 4210)}`,
 };
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL is required');

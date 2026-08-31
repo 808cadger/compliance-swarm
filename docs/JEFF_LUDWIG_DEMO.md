@@ -13,11 +13,10 @@ cd server
 cp .env.example .env   # first time only — then edit COOKIE_SECRET/passwords for anything beyond a laptop demo
 ```
 
-Add these two lines to `server/.env` (not committed — see `.env.example`'s comments):
+Add this line to `server/.env` (not committed — see `.env.example`'s comments):
 
 ```
 DEMO_MODE=true
-PROCESS_STATIC_ROOT=/app
 ```
 
 Bring up the dev stack (Postgres + app, on `localhost:4211`; see `docker-compose.dev.yml` for
@@ -98,6 +97,20 @@ tenant — nothing else in the database is touched).
     `processpass_step_up_completed`, and `process_started` rows — this is the real audit trail
     every step above actually wrote.
 
+## Beyond the scripted demo (optional, if there's time)
+
+Two follow-on capabilities are real, not demo-only, and worth showing if the room wants proof
+this isn't all simulated:
+
+- **A real passkey.** Sign in as any persona via the demo card, then open **Passkeys** in the
+  nav and click "Add a passkey on this device" — this drives a genuine WebAuthn ceremony
+  against whatever authenticator the browser offers (Touch ID, Windows Hello, a security key).
+  Sign out, go to `/login`, and use "Sign in with a passkey" instead of the demo flow at all.
+- **Process Access admin.** As Jeff, open **Process Access** in the nav. Set ForemanSnap's
+  "Requires assigned site" to Yes, then switch to the Foreman persona — ForemanSnap now shows
+  Restricted until that Foreman is given a site assignment on the same page. This is a live,
+  per-tenant override, not a hardcoded demo state.
+
 ## Commands recap
 
 ```bash
@@ -122,13 +135,18 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml down
 | Variable | Value for this demo | Why |
 |---|---|---|
 | `DEMO_MODE` | `true` | Gates every ProcessPass demo-identity route. Off by default — no password-free entry in a real deployment. |
-| `PROCESS_STATIC_ROOT` | `/app` (set in `docker-compose.dev.yml`) | Lets the app container serve `agents/`/`shared/`/`config/`/`templates/` (repo-root siblings of `server/`) at `/agents`, `/shared`, etc., so OfficeSnap/FieldSnap's "Start Process" links resolve. Unset in the plain production Dockerfile — see the delivery notes for what that means. |
+
+`PROCESS_STATIC_ROOT` is not needed for this demo — the image (`server/Dockerfile`, built with
+the repo root as its context) already bakes in `agents/`/`shared/`/`config/`/`templates/` at the
+paths `server/src/app.js`'s static mounts expect by default, in both dev and production. See
+`.env.example` if you ever need the override.
 
 ## If something looks wrong mid-demo
 
-- **A Process card 404s on "Start Process."** Almost certainly OfficeSnap or FieldSnap and
-  `PROCESS_STATIC_ROOT`/the bind mounts in `docker-compose.dev.yml` aren't in effect — confirm
-  you brought the stack up with `-f docker-compose.dev.yml` included.
+- **A Process card 404s on "Start Process."** Rebuild the image — `docker compose -f
+  docker-compose.yml -f docker-compose.dev.yml up -d --build` — the four static Process
+  directories are only baked in at build time, so an image built before this feature (or before
+  an edit to `agents/`/`shared/`/`config/`/`templates/`) won't have current copies of them.
 - **The persona grid is empty / "Demo Mode is not enabled."** `DEMO_MODE` isn't `true` in the
   running container's environment — check `server/.env` and restart the stack (compose only
   re-reads `.env` on `up`, not automatically).

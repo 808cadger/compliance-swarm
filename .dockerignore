@@ -1,0 +1,10 @@
+# Applies to the `app` image build (server/Dockerfile), whose build context is this repo
+# root — not server/ alone — since server/docker-compose.yml's `build.context` changed to `..`
+# so the image can also bake in agents/, shared/, config/, templates/ (see that file and
+# server/Dockerfile for why). Moved here from server/.dockerignore, which Docker no longer
+# reads now that the context root is one level up.
+.git
+**/node_modules
+server/test
+server/.env
+**/*.log

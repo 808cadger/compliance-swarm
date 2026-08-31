@@ -9,6 +9,7 @@
     "test": "node --import ./test/helpers/setup-env.js --test --test-concurrency=1 test/*.test.js"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^13.3.3",
     "argon2": "^0.41.1",
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",

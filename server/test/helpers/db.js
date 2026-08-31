@@ -60,6 +60,8 @@ export async function resetDb(pool) {
 
     await client.query('BEGIN');
     await client.query('DELETE FROM receipts');
+    await client.query('DELETE FROM passkey_credentials');
+    await client.query('DELETE FROM tenant_process_overrides');
     await client.query('DELETE FROM user_site_assignments');
     await client.query('DELETE FROM assignments');
     await client.query('DELETE FROM media');

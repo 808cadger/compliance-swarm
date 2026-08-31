@@ -26,6 +26,12 @@ export default function dashboardRoutes({ pool }) {
     res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
   });
 
+  // Shared static assets referenced by login.html and any dashboard page (currently just the
+  // WebAuthn/passkey glue) — namespaced the same way /processpass/assets is, rather than a
+  // blanket static mount over all of server/src/public, so a new file dropped in that
+  // directory has to be deliberately placed under assets/ to become web-reachable.
+  router.use('/assets', expressStatic(path.join(PUBLIC_DIR, 'assets')));
+
   router.get('/dashboard', authenticate(pool), (req, res) => {
     const rolePath = ROLE_PATH[req.user.role];
     res.redirect(rolePath ? `/dashboard/${rolePath}` : '/processpass/decision');
@@ -71,6 +77,16 @@ export default function dashboardRoutes({ pool }) {
       res.sendFile(path.join(PUBLIC_DIR, 'dashboard', 'audit.html'));
     }),
   );
+
+  // Any signed-in role — a passkey is a property of the user's own account, not gated by
+  // Process/role permissions the way the dashboards above are.
+  router.get('/dashboard/passkeys', authenticate(pool), (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'dashboard', 'passkeys.html'));
+  });
+
+  router.get('/dashboard/process-access', authenticate(pool), requireRole('owner_admin'), (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'dashboard', 'process-access.html'));
+  });
 
   // --- ProcessPass screens. Pre-authentication (kiosk/verify) are open by design — that's
   // the whole point of a kiosk landing screen. decision.html reads its data from

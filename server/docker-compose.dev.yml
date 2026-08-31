@@ -29,12 +29,19 @@ services:
     ports: !override
       - "127.0.0.1:4211:4210"
     # DEMO_MODE defaults off even in dev — a rehearsal run exports it explicitly (see
-    # docs/JEFF_LUDWIG_DEMO.md) rather than this file turning it on implicitly. The four
-    # read-only bind mounts are what let OfficeSnap/FieldSnap's "Start Process" links actually
-    # resolve in a Docker-based dev/demo run: they're repo-root siblings of server/, not under
-    # it, so the plain image (built from server/ alone, see ../Dockerfile) never has them —
-    # PROCESS_STATIC_ROOT here tells app.js's static mounts (server/src/app.js) where to find
-    # them inside this container instead.
+    # docs/JEFF_LUDWIG_DEMO.md) rather than this file turning it on implicitly.
+    #
+    # The image itself already bakes in agents/shared/config/templates at the right paths
+    # (../Dockerfile's build context is the repo root — see docker-compose.yml), so none of
+    # this is required for OfficeSnap/FieldSnap's "Start Process" links to resolve. The bind
+    # mounts below are a pure dev convenience layered on top: they let edits to those four
+    # directories show up on a page reload, without rebuilding the image, the same way editing
+    # server/src doesn't require one either (that's not true in dev Docker the way it is for
+    # `npm start` on bare Node, since there's no live source mount for src/ — these are the
+    # closest equivalent for the static Process prototypes specifically). PROCESS_STATIC_ROOT
+    # only needs setting here because the bind mounts target /app/agents etc, matching what
+    # the image already resolves to by default — remove both together if the live-edit
+    # convenience isn't wanted.
     environment:
       DEMO_MODE: ${DEMO_MODE:-false}
       PROCESS_STATIC_ROOT: /app

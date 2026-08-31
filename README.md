@@ -98,6 +98,22 @@ session/authenticate/audit machinery a password login uses. See
 `docs/JEFF_LUDWIG_DEMO.md` for the full walkthrough and exact commands, and `server/.env.example`
 for the `DEMO_MODE` flag that gates the whole feature off by default.
 
+Two things beyond the demo itself are real, production-shaped identity/access machinery, not
+demo scaffolding:
+
+- **Passkeys** (`/dashboard/passkeys`, `server/src/routes/webauthn.js`) — a real WebAuthn
+  registration/sign-in flow (via `@simplewebauthn/server`), the actual "swap in a real
+  biometric/passkey provider" this whole feature was built to support. A signed-in user adds a
+  passkey once; afterward `/login`'s "Sign in with a passkey" button authenticates with it
+  directly, no password, no demo flag. Origin-bound like all WebAuthn — see
+  `server/.env.example`'s `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
+- **Process Access admin** (`/dashboard/process-access`, owner-only) — a real settings UI over
+  `role_process_access`'s per-tenant overrides (`tenant_process_overrides`), not a
+  migration-only catalog. An owner can force-allow/deny a role's access to a Process, or turn
+  on "requires an assigned job site" for any role/Process pair (e.g. scoping ForemanSnap the
+  same way FieldSnap already scopes Field Worker), all tenant-scoped — one tenant's changes
+  never affect another's. Site rosters themselves are managed from the same page.
+
 ## Status
 
 Prototype stage. Not legal, tax, or accounting advice. Every agent's output needs human review

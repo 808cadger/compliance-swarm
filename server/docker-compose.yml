@@ -17,13 +17,19 @@ services:
       - compliance_swarm
 
   app:
-    build: .
+    # Context is the repo root, not server/ — the image needs agents/, shared/, config/, and
+    # templates/ (siblings of server/) baked in too, so ProcessPass's OfficeSnap/FieldSnap
+    # "Start Process" links resolve without a bind mount (see server/Dockerfile). Compose
+    # resolves a relative `context:` against this file's own directory (server/), so `..` is
+    # the repo root; `dockerfile:` is then relative to that context.
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     container_name: compliance-swarm-app
     restart: unless-stopped
     depends_on:
       - postgres
-    # Only the five variables the spec's Deployment contract lists — NOT `env_file: .env`,
-    # which would also hand the app the Postgres superuser credentials
+    # NOT `env_file: .env`, which would also hand the app the Postgres superuser credentials
     # (POSTGRES_USER/POSTGRES_PASSWORD) and POSTGRES_APP_PASSWORD, defeating the restricted
     # compliance_swarm_app role's insert-only grant on audit_log. Compose still reads .env
     # for ${VAR} substitution below; it just no longer injects the whole file.
@@ -40,6 +46,12 @@ services:
       TZ: ${TZ}
       DATABASE_URL: ${DATABASE_URL}
       COOKIE_SECRET: ${COOKIE_SECRET}
+      # Both blank by default: config.js's own 'localhost'/http://localhost:<PORT> fallback is
+      # wrong for any real deployment (see .env.example) but at least fails loudly (every
+      # passkey ceremony rejects) rather than silently, so leaving these unset here rather than
+      # inventing a production-looking default is deliberate — a real deployment must set them.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-}
     ports:
       - "127.0.0.1:${PORT}:${PORT}"
     volumes:

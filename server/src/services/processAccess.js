@@ -35,14 +35,31 @@ export async function evaluateProcessAccess(pool, {
     return result('deny', evaluatedAt, ['unknown_process'], 'That Process does not exist.');
   }
 
+  // tenant_process_overrides (db/init/014_process_access_overrides_schema.sql) can only
+  // adjust a (role, process_key) pair already present in role_process_access — the LEFT JOIN
+  // below can never introduce a row role_process_access doesn't already have, it only ever
+  // narrows or reshapes one that's there. NULL override columns mean "no override", not
+  // "false", so `??` (not `||`) is what falls back to the global default correctly.
   const { rows: accessRows } = await pool.query(
-    `SELECT requires_site_assignment FROM role_process_access WHERE role = ANY($1::user_role[]) AND process_key = $2`,
-    [roles, processKey],
+    `SELECT rpa.requires_site_assignment AS "defaultRequiresSiteAssignment",
+            tpo.enabled AS "overrideEnabled",
+            tpo.requires_site_assignment AS "overrideRequiresSiteAssignment"
+     FROM role_process_access rpa
+     LEFT JOIN tenant_process_overrides tpo
+       ON tpo.tenant_id = $3 AND tpo.role = rpa.role AND tpo.process_key = rpa.process_key
+     WHERE rpa.role = ANY($1::user_role[]) AND rpa.process_key = $2`,
+    [roles, processKey, tenantId],
   );
-  if (accessRows.length === 0) {
+  let eligible = false;
+  let requiresSiteAssignment = false;
+  for (const row of accessRows) {
+    if ((row.overrideEnabled ?? true) === false) continue;
+    eligible = true;
+    if (row.overrideRequiresSiteAssignment ?? row.defaultRequiresSiteAssignment) requiresSiteAssignment = true;
+  }
+  if (!eligible) {
     return result('deny', evaluatedAt, ['role_does_not_allow_process'], 'Additional approval is required for this Process.');
   }
-  const requiresSiteAssignment = accessRows.some((r) => r.requires_site_assignment);
 
   const reasons = ['role_allows_process'];
 

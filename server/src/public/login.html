@@ -4,11 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Compliance Swarm — Log In</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self'">
 <style>
   body { font-family: system-ui, sans-serif; max-width: 360px; margin: 15vh auto; padding: 0 1rem; }
   input, button { width: 100%; padding: 0.6rem; margin-top: 0.5rem; font-size: 1rem; }
   button { background: #1a5f38; color: white; border: none; border-radius: 4px; }
-  #error { color: #b00020; min-height: 1.2rem; margin-top: 0.5rem; }
+  button.secondary { background: transparent; color: #1a5f38; border: 1px solid #ccc; }
+  #error, #passkeyError { color: #b00020; min-height: 1.2rem; margin-top: 0.5rem; }
+  .divider { text-align: center; color: #999; font-size: 0.85rem; margin: 1.25rem 0; }
 </style>
 </head>
 <body>
@@ -19,26 +22,14 @@
     <button type="submit">Log In</button>
     <div id="error"></div>
   </form>
+
+  <div class="divider">or</div>
+  <button id="passkeyBtn" class="secondary" type="button">Sign in with a passkey</button>
+  <div id="passkeyError"></div>
+
   <p style="text-align:center; margin-top:1rem; font-size:0.9rem;">
     <a href="/processpass" style="color:#1a5f38;">Use ProcessPass instead →</a>
   </p>
-  <script>
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const form = new FormData(e.target);
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.get('email'), password: form.get('password') }),
-      });
-      if (res.ok) {
-        window.location.href = '/dashboard';
-      } else if (res.status === 429) {
-        document.getElementById('error').textContent = 'Too many attempts — please wait a few minutes and try again.';
-      } else {
-        document.getElementById('error').textContent = 'Invalid email or password.';
-      }
-    });
-  </script>
+  <script type="module" src="/assets/login.js"></script>
 </body>
 </html>
