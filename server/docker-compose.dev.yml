@@ -28,8 +28,22 @@ services:
     container_name: compliance-swarm-app-dev
     ports: !override
       - "127.0.0.1:4211:4210"
+    # DEMO_MODE defaults off even in dev — a rehearsal run exports it explicitly (see
+    # docs/JEFF_LUDWIG_DEMO.md) rather than this file turning it on implicitly. The four
+    # read-only bind mounts are what let OfficeSnap/FieldSnap's "Start Process" links actually
+    # resolve in a Docker-based dev/demo run: they're repo-root siblings of server/, not under
+    # it, so the plain image (built from server/ alone, see ../Dockerfile) never has them —
+    # PROCESS_STATIC_ROOT here tells app.js's static mounts (server/src/app.js) where to find
+    # them inside this container instead.
+    environment:
+      DEMO_MODE: ${DEMO_MODE:-false}
+      PROCESS_STATIC_ROOT: /app
     volumes:
       - media_data_dev:/data/media
+      - ../agents:/app/agents:ro
+      - ../shared:/app/shared:ro
+      - ../config:/app/config:ro
+      - ../templates:/app/templates:ro
 
 volumes:
   media_data_dev:

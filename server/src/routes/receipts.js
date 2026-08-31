@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import authenticate from '../middleware/authenticate.js';
 import requireRole from '../middleware/requireRole.js';
+import requireStepUp from '../middleware/requireStepUp.js';
 import { asyncRoute } from '../asyncRoute.js';
 import { writeAudit } from '../audit.js';
 import * as storage from '../storage.js';
@@ -122,7 +123,11 @@ export default function receiptRoutes({ pool }) {
     res.sendFile(storage.resolveMediaPath(rows[0].storage_key));
   }));
 
-  router.delete('/:id', requireRole('accounting'), asyncRoute(async (req, res) => {
+  // Deleting filed compliance evidence is exactly the "delete compliance evidence" example
+  // action from the ProcessPass step-up rules — gated the same way as the audit trail
+  // (routes/audit.js). requireStepUp is a no-op for a real password-authenticated accounting
+  // user; this only adds friction for a ProcessPass demo session.
+  router.delete('/:id', requireRole('accounting'), requireStepUp(pool, 'delete_receipt'), asyncRoute(async (req, res) => {
     const { rows } = await pool.query(
       `DELETE FROM receipts WHERE id = $1 AND tenant_id = $2 RETURNING storage_key`,
       [req.params.id, req.user.tenantId],

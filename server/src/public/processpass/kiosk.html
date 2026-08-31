@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProcessPass — Access your Processes</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self'">
+<link rel="stylesheet" href="/processpass/assets/processpass.css">
+</head>
+<body class="pp-body">
+  <div class="pp-shell">
+    <div class="pp-brandmark"><span class="pp-dot"></span> ProcessPass</div>
+
+    <div class="pp-card" style="text-align:center;">
+      <h1 class="pp-h1">Access your Processes</h1>
+      <p class="pp-sub">Identify yourself to open the Processes assigned to you.</p>
+
+      <div style="max-width:22rem; margin: 0 auto;">
+        <button id="identifyBtn" class="pp-btn pp-btn-primary">Identify Me</button>
+        <div style="height:0.75rem;"></div>
+        <a href="/login" class="pp-btn pp-btn-secondary" style="text-decoration:none;">Use secure sign-in instead</a>
+      </div>
+
+      <p class="pp-privacy-note">
+        <span>🔒</span> Identity verification begins only when you choose Identify Me. Nothing runs in the background.
+      </p>
+    </div>
+
+    <p class="pp-footer">
+      Consent-based visual identity access for Compliance Swarm — nothing here scans, tracks,<br>
+      or recognizes anyone who hasn't chosen to step up and take part.
+    </p>
+  </div>
+
+  <script src="/processpass/assets/kiosk.js"></script>
+</body>
+</html>

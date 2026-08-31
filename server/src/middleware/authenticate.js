@@ -11,7 +11,15 @@ export default function authenticate(pool) {
     if (!session) {
       return res.status(401).json({ error: { code: 'unauthenticated', message: 'Login required' } });
     }
-    req.user = { id: session.userId, tenantId: session.tenantId, role: session.role };
+    req.user = {
+      id: session.userId,
+      tenantId: session.tenantId,
+      role: session.role,
+      authMethod: session.authMethod,
+      assuranceLevel: session.assuranceLevel,
+      stepUpValid: session.stepUpValid,
+    };
+    req.sessionToken = token;
     await refreshSession(pool, token);
     next();
   });

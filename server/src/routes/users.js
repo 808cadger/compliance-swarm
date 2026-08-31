@@ -14,7 +14,10 @@ export default function userRoutes({ pool }) {
     if (!email || !displayName || !role || !tempPassword) {
       return res.status(400).json({ error: { code: 'bad_request', message: 'email, displayName, role, tempPassword required' } });
     }
-    if (!['owner_admin', 'supervisor', 'accounting'].includes(role)) {
+    // field_worker added alongside the original three roles: a real business now has a
+    // genuine use for it (FieldSnap access — see db/init/010_processpass_schema.sql), not
+    // just the ProcessPass demo persona seeded by scripts/seed-demo.js.
+    if (!['owner_admin', 'supervisor', 'accounting', 'field_worker'].includes(role)) {
       return res.status(400).json({ error: { code: 'bad_request', message: 'invalid role' } });
     }
     if (tempPassword.length < MIN_PASSWORD_LENGTH) {

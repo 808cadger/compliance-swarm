@@ -1,5 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { LoginRateLimiter } from './rateLimit.js';
@@ -11,6 +13,10 @@ import walkthroughRoutes from './routes/walkthroughs.js';
 import receiptRoutes from './routes/receipts.js';
 import mediaRoutes from './routes/media.js';
 import dashboardRoutes from './routes/dashboard.js';
+import processpassRoutes from './routes/processpass.js';
+import auditRoutes from './routes/audit.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Errors raised while parsing the request itself carry the request's own bytes, and
 // /api/auth/login POSTs {email, password}: a malformed login body means the plaintext
@@ -120,7 +126,29 @@ export function createApp() {
   app.use('/api/assignments', assignmentRoutes({ pool }));
   app.use('/api/walkthroughs', walkthroughRoutes({ pool }));
   app.use('/api/receipts', receiptRoutes({ pool }));
+  app.use('/api/processpass', processpassRoutes({ pool }));
+  app.use('/api/audit', auditRoutes({ pool }));
+  // Must stay LAST among /api mounts: mediaRoutes is mounted at the bare '/api' prefix (its
+  // own routes are under /walkthroughs/:id/media and /media/:id, not a fixed sub-path) and
+  // its router runs authenticate() unconditionally for every path under that mount. Express
+  // matches app.use() mounts in registration order, not by specificity, so any /api/* mount
+  // registered after this one would have every request intercepted — and 401'd — by
+  // mediaRoutes' authenticate middleware before ever reaching its own router.
   app.use('/api', mediaRoutes({ pool }));
+
+  // The repo's static Process prototypes (agents/, shared/, config/, templates/) live as
+  // siblings of server/, not under it, and reference each other with paths relative to that
+  // sibling layout (e.g. agents/*.js imports '../shared/...', which imports
+  // '../config/model-policy.json') — mounting them here at matching sibling URL paths means
+  // every existing relative import resolves unchanged, no per-file rewriting needed.
+  // config.processStaticRoot is unset in the plain Docker image (those directories aren't in
+  // its build context), in which case these simply 404 rather than error — see
+  // docker-compose.dev.yml for how the dev/demo stack supplies it.
+  const staticRoot = config.processStaticRoot ?? path.join(__dirname, '..', '..');
+  for (const dir of ['agents', 'shared', 'config', 'templates']) {
+    app.use(`/${dir}`, express.static(path.join(staticRoot, dir)));
+  }
+
   app.use(dashboardRoutes({ pool }));
 
   // Everything below must stay LAST, after every route mount: Express dispatches middleware
