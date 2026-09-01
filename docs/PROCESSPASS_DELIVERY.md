@@ -5,6 +5,15 @@ Docker build, process-access admin UI). See `docs/JEFF_LUDWIG_DEMO.md` for the d
 run/seed commands — this doc is the file-by-file "what changed and why," plus the
 production-readiness call the spec asked for, which had not been committed anywhere until now.
 
+**Since first written:** a follow-up pass replaced the fixed demo step-up PIN with a random
+per-session one (`server/db/init/016_step_up_pin.sql`, `server/src/auth/session.js`,
+`server/src/routes/processpass.js`, plus the decision/accounting/owner dashboards that surface
+it), added the `DEMO_MODE`/`CONFIRM_DEMO_MODE` double-opt-in guard (`server/src/config.js`,
+`server/test/config.test.js`), merged in `main`'s PR #4 (owner_admin receipt delete) which had
+landed independently and touched the same dashboard files, and fixed three real bugs an actual
+live run surfaced in `scripts/seed-demo.js` and `server/docker-compose.dev.yml` (see "Simulated
+vs. production-ready" and commit history below).
+
 ## What changed, and why
 
 **Terminology migration** — user-facing copy only ("Apps" → "Processes", "Open app" → "Start
@@ -92,7 +101,10 @@ COOKIE_SECRET=test-secret npm test
 `DEMO_MODE=true` in `server/.env` gates every ProcessPass demo-identity route
 (`POST /api/processpass/identify` and friends) and `seed-demo.js`. Unset (the production
 default) — no password-free entry exists; "Identify Me" is unreachable and the demo personas
-were never created.
+were never created. `config.js` additionally refuses to even start with `DEMO_MODE=true` unless
+`CONFIRM_DEMO_MODE=true` is also set, in every environment — a deliberate second flag under a
+different name, much less likely to survive an `.env` copy-paste by accident than one flag
+alone. See `docs/JEFF_LUDWIG_DEMO.md`.
 
 ## Simulated vs. production-ready
 
@@ -102,8 +114,8 @@ were never created.
   branch.
 - `DemoIdentityProvider` — persona selection, not identification. It only authenticates rows an
   operator has explicitly flagged `is_demo_persona`.
-- The step-up PIN (`1234`, hardcoded) — a stand-in for a real second factor, gated behind
-  `DEMO_MODE`.
+- The step-up code — random per session (not a fixed value; see below), but still shown on
+  screen rather than delivered out of band, which only makes sense for a demo.
 
 **Real, already enforced on the backend today, unaffected by DEMO_MODE:**
 - Tenant isolation, role→Process mapping, and per-tenant overrides (`evaluateProcessAccess()`,
@@ -111,27 +123,29 @@ were never created.
 - The full audit trail (14 event types, real Postgres rows).
 - Session model: `auth_method`/`assurance_level`, expiry, explicit sign-out.
 - WebAuthn/passkey login — genuine cryptographic authentication via `@simplewebauthn/server`,
-  usable today independent of the demo flow.
+  usable today independent of the demo flow. Verified live end-to-end (registration then
+  login, no demo identity or password involved) against a real browser using a Chrome
+  DevTools Protocol *virtual* CTAP2 authenticator — a legitimate, standard way to exercise the
+  real cryptographic ceremony without physical hardware, and it did catch a real bug (the dev
+  stack's `WEBAUTHN_ORIGIN` port mismatch, fixed — see commit history). What that virtual
+  authenticator can't stand in for is a genuine hardware/platform authenticator's own quirks
+  (Touch ID, Windows Hello, a physical security key) — still worth one manual pass with real
+  hardware before this is relied on live.
+- The random per-session step-up code (`auth/session.js`'s `generateDemoStepUpPin`/
+  `verifyStepUpPin`) — no longer a fixed, publicly-documented value; hashed at rest, unique per
+  session, verified live via the same browser session above.
+- `DEMO_MODE=true` refusing to start without `CONFIRM_DEMO_MODE=true` also set (`config.js`).
 - The process-access admin overrides UI and its authorization checks.
-
-**Not yet exercised end-to-end:** passkey registration/login against a real hardware
-authenticator (Touch ID, Windows Hello, a security key) — the WebAuthn ceremony's own
-signature-verification crypto is covered by `@simplewebauthn/server`'s upstream tests, not
-re-derived in this branch's suite, so a manual pass with a real device is still worth doing
-before relying on it live.
 
 ## Next 3 highest-value production steps
 
-1. **Replace `DemoIdentityProvider` with a real identity door for non-demo tenants**, or make it
+1. **One manual pass with a real hardware authenticator** (Touch ID, Windows Hello, or a
+   physical security key) — the ceremony's cryptography is now verified end-to-end against a
+   virtual authenticator (see above), but a real device's own UX/timing hasn't been tried.
+2. **Replace `DemoIdentityProvider` with a real identity door for non-demo tenants**, or make it
    explicit that ProcessPass's "Identify Me" path is demo-only and production users are expected
-   to reach Processes exclusively through password/passkey login. Right now the kiosk route
-   exists in the codebase whenever `DEMO_MODE` is on; nothing stops someone from turning that on
-   against a real tenant's data if the env var were ever set in production by mistake — worth an
-   explicit guard (e.g. refuse `DEMO_MODE=true` unless a separate `ALLOW_DEMO_MODE_IN_PROD=false`
-   default is also flipped) rather than relying on operators to just not set it.
-2. **Do the manual passkey/WebAuthn check with a real authenticator**, called out above — the
-   crypto path is unverified end-to-end in this branch beyond the library's own tests.
-3. **Replace the hardcoded step-up PIN (`1234`) with a real second factor** (e.g. require an
-   actual passkey ceremony or a TOTP code) before step-up is used for anything beyond this demo —
-   right now any user who has cleared the demo identity step can clear step-up with a publicly
-   known value.
+   to reach Processes exclusively through password/passkey login.
+3. **Deliver the step-up code out of band** (SMS/push/authenticator app) instead of displaying
+   it in the same response/modal that requests it — the current version is a real per-session
+   secret (not guessable or shared across sessions like the old fixed PIN was), but showing it
+   on screen is still only appropriate for a demo, not a production step-up flow.
