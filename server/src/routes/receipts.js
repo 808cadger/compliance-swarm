@@ -44,7 +44,7 @@ export default function receiptRoutes({ pool }) {
 
   router.post(
     '/',
-    requireRole('accounting'),
+    requireRole('accounting', 'owner_admin'),
     upload.single('file'),
     // Same MulterError-translation precedent as media.js: a size-limit rejection carries no
     // .status/.statusCode, so left unhandled it would fall through to a generic 500.
@@ -122,7 +122,7 @@ export default function receiptRoutes({ pool }) {
     res.sendFile(storage.resolveMediaPath(rows[0].storage_key));
   }));
 
-  router.delete('/:id', requireRole('accounting'), asyncRoute(async (req, res) => {
+  router.delete('/:id', requireRole('accounting', 'owner_admin'), asyncRoute(async (req, res) => {
     const { rows } = await pool.query(
       `DELETE FROM receipts WHERE id = $1 AND tenant_id = $2 RETURNING storage_key`,
       [req.params.id, req.user.tenantId],

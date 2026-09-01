@@ -5,20 +5,62 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Owner — Dashboard</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; }
-  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; color: #1a2b20; }
+  h1 { color: #1a5f38; }
+  fieldset { border: 1px solid #d8ded9; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(26,95,56,0.06); }
+  legend { font-weight: 600; color: #1a5f38; padding: 0 0.4rem; }
   label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
-  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
-  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; }
+  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; background: #1a5f38; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #144a2c; }
   table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
   th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
   .msg.ok { background: #e6f4ea; color: #1e4620; }
   .msg.err { background: #fdecea; color: #7a271a; }
+  #receiptList { list-style: none; padding: 0; margin-top: 0.75rem; }
+  #receiptList li { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  #receiptList img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
+  #receiptList button { margin-left: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; background: #7a271a; }
+  #receiptList button:hover { background: #5c1d13; }
 </style>
 </head>
 <body>
   <h1>Owner / Admin</h1>
+
+  <fieldset>
+    <legend>Add a Site</legend>
+    <form id="site-form">
+      <label>Site name
+        <input type="text" name="name" id="siteNameInput" required>
+      </label>
+      <button type="submit">Add Site</button>
+    </form>
+    <div id="siteMsg"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Add an Employee</legend>
+    <form id="employee-form">
+      <label>Name
+        <input type="text" name="displayName" id="empNameInput" required>
+      </label>
+      <label>Email
+        <input type="email" name="email" id="empEmailInput" required>
+      </label>
+      <label>Temporary password
+        <input type="text" name="tempPassword" id="empPasswordInput" minlength="12" required>
+      </label>
+      <label>Role
+        <select name="role" id="empRoleSelect" required>
+          <option value="supervisor">Supervisor</option>
+          <option value="accounting">Accounting</option>
+        </select>
+      </label>
+      <button type="submit">Add Employee</button>
+    </form>
+    <div id="employeeMsg"></div>
+  </fieldset>
 
   <fieldset>
     <legend>Assign a Walkthrough</legend>
@@ -52,11 +94,25 @@
   </fieldset>
 
   <fieldset>
+    <legend>File a Receipt or Invoice</legend>
+    <form id="capture-form">
+      <label>Type
+        <select name="kind" id="kindSelect" required>
+          <option value="receipt">Receipt</option>
+          <option value="invoice">Invoice</option>
+        </select>
+      </label>
+      <label>Photo
+        <input type="file" accept="image/*" capture="environment" id="fileInput" required>
+      </label>
+      <button type="submit">File it</button>
+    </form>
+    <div id="captureMsg"></div>
+  </fieldset>
+
+  <fieldset>
     <legend>Filed Receipts &amp; Invoices</legend>
-    <table>
-      <thead><tr><th>Type</th><th>Filed By</th><th>Date</th></tr></thead>
-      <tbody id="receiptsBody"></tbody>
-    </table>
+    <ul id="receiptList"></ul>
   </fieldset>
 
   <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
@@ -122,18 +178,23 @@
       const res = await fetch('/api/receipts');
       if (!res.ok) return;
       const rows = await res.json();
-      const tbody = document.getElementById('receiptsBody');
-      tbody.innerHTML = '';
+      const list = document.getElementById('receiptList');
+      list.innerHTML = '';
       for (const r of rows) {
-        const tr = document.createElement('tr');
-        const kindTd = document.createElement('td');
-        kindTd.textContent = r.kind;
-        const byTd = document.createElement('td');
-        byTd.textContent = r.uploadedByName;
-        const dateTd = document.createElement('td');
-        dateTd.textContent = new Date(r.createdAt).toLocaleDateString();
-        tr.append(kindTd, byTd, dateTd);
-        tbody.appendChild(tr);
+        const li = document.createElement('li');
+        const img = document.createElement('img');
+        img.src = `/api/receipts/${r.id}`;
+        img.alt = r.kind;
+        const label = document.createElement('span');
+        label.textContent = `${r.kind} — ${r.uploadedByName}`;
+        const del = document.createElement('button');
+        del.textContent = 'Delete';
+        del.addEventListener('click', async () => {
+          await fetch(`/api/receipts/${r.id}`, { method: 'DELETE' });
+          loadReceipts();
+        });
+        li.append(img, label, del);
+        list.appendChild(li);
       }
     }
 
@@ -142,6 +203,49 @@
     loadSites();
     loadTodaysAssignments();
     loadReceipts();
+
+    document.getElementById('site-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('siteNameInput').value;
+      const res = await fetch('/api/sites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const msg = document.getElementById('siteMsg');
+      if (res.ok) {
+        msg.textContent = 'Site added.';
+        msg.className = 'msg ok';
+        document.getElementById('siteNameInput').value = '';
+        loadSites();
+      } else {
+        msg.textContent = 'Could not add that site.';
+        msg.className = 'msg err';
+      }
+    });
+
+    document.getElementById('employee-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const displayName = document.getElementById('empNameInput').value;
+      const email = document.getElementById('empEmailInput').value;
+      const tempPassword = document.getElementById('empPasswordInput').value;
+      const role = document.getElementById('empRoleSelect').value;
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName, email, tempPassword, role }),
+      });
+      const msg = document.getElementById('employeeMsg');
+      if (res.ok) {
+        msg.textContent = 'Employee added.';
+        msg.className = 'msg ok';
+        document.getElementById('employee-form').reset();
+        loadSupervisors();
+      } else {
+        msg.textContent = 'Could not add that employee — check the fields.';
+        msg.className = 'msg err';
+      }
+    });
 
     document.getElementById('assign-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -163,6 +267,28 @@
         loadTodaysAssignments();
       } else {
         msg.textContent = 'Could not assign — check the fields.';
+        msg.className = 'msg err';
+      }
+    });
+
+    document.getElementById('capture-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const kind = document.getElementById('kindSelect').value;
+      const file = document.getElementById('fileInput').files[0];
+      const msg = document.getElementById('captureMsg');
+      if (!file) return;
+
+      const body = new FormData();
+      body.append('kind', kind);
+      body.append('file', file);
+      const res = await fetch('/api/receipts', { method: 'POST', body });
+      if (res.ok) {
+        msg.textContent = 'Filed.';
+        msg.className = 'msg ok';
+        document.getElementById('fileInput').value = '';
+        loadReceipts();
+      } else {
+        msg.textContent = 'Could not file it — check the file.';
         msg.className = 'msg err';
       }
     });
