@@ -29,11 +29,14 @@ export async function buildRegistrationOptions({ userId, userEmail, userDisplayN
     // otherwise a platform authenticator may treat it as a different account.
     userID: Buffer.from(userId.replace(/-/g, ''), 'hex'),
     excludeCredentials,
-    // 'required', not 'preferred': this app has no separate privileged-step-up ceremony —
-    // registration and login (below) are the only two WebAuthn ceremonies that exist, and
-    // login is itself the assurance-granting event (assurance_level='elevated'), so it must
-    // actually prove verification (PIN/biometric/etc.), not just presence.
-    authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+    // 'preferred', not 'required': a bare physical security key with no PIN configured
+    // doesn't support user verification at all, so 'required' would hard-fail registration
+    // (and every future login) for that class of authenticator — a real compatibility risk
+    // for something this app can't yet warn about clearly. 'preferred' still asks for
+    // verification whenever the authenticator supports it (which platform authenticators like
+    // Touch ID/Windows Hello/phone passkeys always do in practice), so this is a narrow,
+    // deliberate trade of stricter policy for broader hardware compatibility.
+    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
   });
 }
 
@@ -56,7 +59,7 @@ export async function buildAuthenticationOptions() {
   return generateAuthenticationOptions({
     rpID: config.webauthnRpId,
     // See the matching comment in buildRegistrationOptions above.
-    userVerification: 'required',
+    userVerification: 'preferred',
   });
 }
 
