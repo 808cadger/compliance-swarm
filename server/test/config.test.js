@@ -73,3 +73,89 @@ test('DEMO_MODE=true starts when CONFIRM_DEMO_MODE is also set', async (t) => {
   await waitForHealth(`http://127.0.0.1:${GUARD_ALLOWED_PORT}`, child, () => exited);
   assert.equal(exited, null, 'server should still be running, not have exited, once healthy');
 });
+
+// --- WebAuthn origin/RP ID fail-closed validation ---------------------------------------
+
+const WEBAUTHN_CASES = [
+  {
+    name: 'http origin on a non-localhost host is refused',
+    env: { WEBAUTHN_RP_ID: 'compliance.example.com', WEBAUTHN_ORIGIN: 'http://compliance.example.com' },
+    match: /must be https for any host other than localhost/,
+  },
+  {
+    name: 'an origin with a path is refused',
+    env: { WEBAUTHN_RP_ID: 'compliance.example.com', WEBAUTHN_ORIGIN: 'https://compliance.example.com/app' },
+    match: /must not contain a path/,
+  },
+  {
+    name: 'an origin with a query string is refused',
+    env: { WEBAUTHN_RP_ID: 'compliance.example.com', WEBAUTHN_ORIGIN: 'https://compliance.example.com/?x=1' },
+    match: /must not contain a path|must not contain a query/,
+  },
+  {
+    name: 'a malformed origin URL is refused',
+    env: { WEBAUTHN_RP_ID: 'compliance.example.com', WEBAUTHN_ORIGIN: 'not a url' },
+    match: /not a valid URL/,
+  },
+  {
+    name: 'an RP ID containing a scheme is refused',
+    env: { WEBAUTHN_RP_ID: 'https://compliance.example.com', WEBAUTHN_ORIGIN: 'https://compliance.example.com' },
+    match: /must be a bare hostname/,
+  },
+  {
+    name: 'an RP ID containing a port is refused',
+    env: { WEBAUTHN_RP_ID: 'compliance.example.com:4210', WEBAUTHN_ORIGIN: 'https://compliance.example.com' },
+    match: /must be a bare hostname/,
+  },
+  {
+    name: 'RP ID / origin hostname mismatch is refused',
+    env: { WEBAUTHN_RP_ID: 'other.example.com', WEBAUTHN_ORIGIN: 'https://compliance.example.com' },
+    match: /must equal WEBAUTHN_ORIGIN's hostname/,
+  },
+];
+
+let webauthnCasePort = 4290;
+for (const { name, env, match } of WEBAUTHN_CASES) {
+  test(`WebAuthn config: ${name}`, async () => {
+    const port = webauthnCasePort++;
+    const child = spawnServer(port, env);
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const { code } = await waitForExit(child);
+    assert.notEqual(code, 0, 'server must refuse to start on invalid WebAuthn config');
+    assert.match(stderr, match);
+  });
+}
+
+test('WebAuthn config: a valid https production-shaped config starts normally', async (t) => {
+  const port = webauthnCasePort++;
+  const child = spawnServer(port, { WEBAUTHN_RP_ID: 'compliance.example.com', WEBAUTHN_ORIGIN: 'https://compliance.example.com' });
+  let exited = null;
+  child.on('exit', (code, signal) => { exited = { code, signal }; });
+  t.after(() => { if (!exited) child.kill('SIGKILL'); });
+
+  await waitForHealth(`http://127.0.0.1:${port}`, child, () => exited);
+  assert.equal(exited, null);
+});
+
+test('WebAuthn config: explicit http://localhost stays valid (the dev-stack shape)', async (t) => {
+  const port = webauthnCasePort++;
+  const child = spawnServer(port, { WEBAUTHN_RP_ID: 'localhost', WEBAUTHN_ORIGIN: `http://localhost:${port}` });
+  let exited = null;
+  child.on('exit', (code, signal) => { exited = { code, signal }; });
+  t.after(() => { if (!exited) child.kill('SIGKILL'); });
+
+  await waitForHealth(`http://127.0.0.1:${port}`, child, () => exited);
+  assert.equal(exited, null);
+});
+
+test('WebAuthn config: omitting both entirely still starts (safe localhost fallback)', async (t) => {
+  const port = webauthnCasePort++;
+  const child = spawnServer(port, { WEBAUTHN_RP_ID: '', WEBAUTHN_ORIGIN: '' });
+  let exited = null;
+  child.on('exit', (code, signal) => { exited = { code, signal }; });
+  t.after(() => { if (!exited) child.kill('SIGKILL'); });
+
+  await waitForHealth(`http://127.0.0.1:${port}`, child, () => exited);
+  assert.equal(exited, null);
+});

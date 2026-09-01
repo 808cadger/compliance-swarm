@@ -47,3 +47,58 @@ if (config.demoMode && process.env.CONFIRM_DEMO_MODE !== 'true') {
     'what you mean to run — see docs/JEFF_LUDWIG_DEMO.md.'
   );
 }
+
+// Fail closed on a malformed or insecure WEBAUTHN_ORIGIN/WEBAUTHN_RP_ID rather than letting
+// every real ceremony silently reject at runtime (the failure mode before this check existed —
+// see docs/PROCESSPASS_PRODUCTION_ASSURANCE.md for the incident this guards against). Not
+// gated on NODE_ENV: this app's dev and production Docker builds both run
+// NODE_ENV=production (same reason the DEMO_MODE guard above isn't NODE_ENV-gated either), so
+// that can't distinguish "real production" from "the correctly-configured dev stack," which
+// legitimately uses http://localhost:4211. Instead this validates the origin value itself:
+// localhost/127.0.0.1 may stay on http in any environment (the recognized secure-context
+// exception this app's own local dev already relies on); anything else must be https. A
+// value that was never explicitly set (the 'localhost' fallback above) is always safe by
+// construction and never reaches this far under a false pretense — the checks below apply to
+// whatever value is actually in effect, defaulted or explicit alike, since the two are
+// otherwise indistinguishable here and both must be safe to actually run.
+function validateWebauthnConfig({ rpId, origin }) {
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    throw new Error(`WEBAUTHN_ORIGIN is not a valid URL: "${origin}"`);
+  }
+  if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') {
+    throw new Error(`WEBAUTHN_ORIGIN must be http or https: "${origin}"`);
+  }
+  const isLoopback = parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1';
+  if (!isLoopback && parsedOrigin.protocol !== 'https:') {
+    throw new Error(
+      `WEBAUTHN_ORIGIN must be https for any host other than localhost/127.0.0.1: "${origin}"`
+    );
+  }
+  if (parsedOrigin.pathname !== '/' && parsedOrigin.pathname !== '') {
+    throw new Error(`WEBAUTHN_ORIGIN must not contain a path: "${origin}"`);
+  }
+  if (parsedOrigin.search || parsedOrigin.hash) {
+    throw new Error(`WEBAUTHN_ORIGIN must not contain a query string or fragment: "${origin}"`);
+  }
+
+  // A WebAuthn RP ID is a bare registrable domain: no scheme, port, path, query, or fragment.
+  // This also structurally forbids embedding credentials or userinfo, which the regex's
+  // character class already excludes.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(rpId)) {
+    throw new Error(`WEBAUTHN_RP_ID must be a bare hostname, no scheme/port/path: "${rpId}"`);
+  }
+
+  // WebAuthn's real rule allows RP ID to be a registrable-domain suffix of the origin, not
+  // only an exact match — but this app is a deliberate single-domain deployment (one origin,
+  // one RP ID, enforced by config alone, not hardcoded), so exact match is the correct and
+  // simpler rule here; a mismatch of any kind is a misconfiguration, not a valid subdomain
+  // delegation this app is set up to use.
+  if (parsedOrigin.hostname !== rpId) {
+    throw new Error(`WEBAUTHN_RP_ID ("${rpId}") must equal WEBAUTHN_ORIGIN's hostname ("${parsedOrigin.hostname}")`);
+  }
+}
+
+validateWebauthnConfig({ rpId: config.webauthnRpId, origin: config.webauthnOrigin });

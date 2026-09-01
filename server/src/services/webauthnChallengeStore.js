@@ -9,9 +9,11 @@ import crypto from 'node:crypto';
 const TTL_MS = 5 * 60 * 1000;
 const store = new Map();
 
-export function beginCeremony(data) {
+// ttlMs is an internal-only override (tests exercise real expiry immediately rather than
+// waiting 5 real minutes; production callers never pass it and always get TTL_MS).
+export function beginCeremony(data, ttlMs = TTL_MS) {
   const ceremonyId = crypto.randomBytes(24).toString('hex');
-  store.set(ceremonyId, { ...data, expiresAt: Date.now() + TTL_MS });
+  store.set(ceremonyId, { ...data, expiresAt: Date.now() + ttlMs });
   return ceremonyId;
 }
 

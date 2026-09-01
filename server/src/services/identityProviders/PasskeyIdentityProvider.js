@@ -29,6 +29,13 @@ export async function buildRegistrationOptions({ userId, userEmail, userDisplayN
     // otherwise a platform authenticator may treat it as a different account.
     userID: Buffer.from(userId.replace(/-/g, ''), 'hex'),
     excludeCredentials,
+    // 'preferred', not 'required': a bare physical security key with no PIN configured
+    // doesn't support user verification at all, so 'required' would hard-fail registration
+    // (and every future login) for that class of authenticator — a real compatibility risk
+    // for something this app can't yet warn about clearly. 'preferred' still asks for
+    // verification whenever the authenticator supports it (which platform authenticators like
+    // Touch ID/Windows Hello/phone passkeys always do in practice), so this is a narrow,
+    // deliberate trade of stricter policy for broader hardware compatibility.
     authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
   });
 }
@@ -51,6 +58,7 @@ export async function verifyRegistration({ response, expectedChallenge }) {
 export async function buildAuthenticationOptions() {
   return generateAuthenticationOptions({
     rpID: config.webauthnRpId,
+    // See the matching comment in buildRegistrationOptions above.
     userVerification: 'preferred',
   });
 }

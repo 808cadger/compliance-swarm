@@ -8,6 +8,20 @@ import {
   buildRegistrationOptions, verifyRegistration,
   buildAuthenticationOptions, verifyAuthentication,
 } from '../services/identityProviders/PasskeyIdentityProvider.js';
+import { evaluateCounterAdvance } from '../services/webauthnPolicy.js';
+
+// @simplewebauthn/server throws a plain Error with a descriptive message (e.g. "Unexpected
+// registration response origin") for every distinct verification failure — origin mismatch,
+// RP ID mismatch, challenge mismatch, bad signature, unsupported algorithm, etc. None of that
+// is a secret (it never includes the actual challenge, key material, or credential payload,
+// only which structural check failed) and it's exactly the "detailed reason in structured
+// server-side audit logs, generic message to the user" split this app already uses elsewhere
+// (see routes/auth.js's login). Truncated defensively in case a future library version ever
+// changes that.
+function safeVerificationFailureReason(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.slice(0, 200);
+}
 
 export default function webauthnRoutes({ pool, rateLimiter }) {
   const router = Router();
@@ -30,6 +44,7 @@ export default function webauthnRoutes({ pool, rateLimiter }) {
       excludeCredentials: existing,
     });
     const ceremonyId = beginCeremony({ purpose: 'register', userId: req.user.id, tenantId: req.user.tenantId, challenge: options.challenge });
+    await writeAudit(pool, { tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'passkey_registration_started', ipAddress: req.ip });
     res.json({ ceremonyId, options });
   }));
 
@@ -37,17 +52,24 @@ export default function webauthnRoutes({ pool, rateLimiter }) {
     const { ceremonyId, response, deviceLabel } = req.body ?? {};
     const ceremony = ceremonyId ? takeCeremony(ceremonyId) : null;
     if (!ceremony || ceremony.purpose !== 'register' || ceremony.userId !== req.user.id) {
+      await writeAudit(pool, {
+        tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'passkey_challenge_invalid',
+        metadata: { reason: 'unknown_expired_or_wrong_user_ceremony', ceremonyPurpose: 'register' }, ipAddress: req.ip,
+      });
       return res.status(400).json({ error: { code: 'bad_request', message: 'This registration attempt has expired — try again.' } });
     }
 
     let result;
     try {
       result = await verifyRegistration({ response, expectedChallenge: ceremony.challenge });
-    } catch {
-      result = { verified: false };
+    } catch (err) {
+      result = { verified: false, failureReason: safeVerificationFailureReason(err) };
     }
     if (!result.verified) {
-      await writeAudit(pool, { tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'passkey_registration_failed', ipAddress: req.ip });
+      await writeAudit(pool, {
+        tenantId: req.user.tenantId, actorUserId: req.user.id, eventType: 'passkey_registration_failed',
+        metadata: result.failureReason ? { reason: result.failureReason } : {}, ipAddress: req.ip,
+      });
       return res.status(400).json({ error: { code: 'verification_failed', message: 'Could not verify the new passkey.' } });
     }
 
@@ -121,7 +143,17 @@ export default function webauthnRoutes({ pool, rateLimiter }) {
 
     const { ceremonyId, response } = req.body ?? {};
     const ceremony = ceremonyId ? takeCeremony(ceremonyId) : null;
-    if (!ceremony || ceremony.purpose !== 'login') return genericFailure();
+    if (!ceremony || ceremony.purpose !== 'login') {
+      // Anonymous, like login/verify itself — tenantId unknown at this point, same pattern as
+      // the unknown-credential branch below. Covers an unknown, expired, or already-consumed
+      // (replayed) ceremony id in one bucket; takeCeremony's one-shot design means a second use
+      // of the same id lands here too.
+      await writeAudit(pool, {
+        tenantId: null, eventType: 'passkey_challenge_invalid',
+        metadata: { reason: 'unknown_expired_or_replayed_ceremony', ceremonyPurpose: 'login' }, ipAddress: req.ip,
+      });
+      return genericFailure();
+    }
 
     const credentialId = response?.id;
     if (!credentialId || typeof credentialId !== 'string') return genericFailure();
@@ -148,12 +180,30 @@ export default function webauthnRoutes({ pool, rateLimiter }) {
         response, expectedChallenge: ceremony.challenge,
         credential: { id: row.credentialId, publicKey: row.publicKey, counter: row.counter, transports: row.transports },
       });
-    } catch {
-      result = { verified: false };
+    } catch (err) {
+      result = { verified: false, failureReason: safeVerificationFailureReason(err) };
     }
     if (!result.verified) {
-      await writeAudit(pool, { tenantId: row.tenantId, eventType: 'passkey_login_failed', metadata: { reason: 'verification_failed' }, ipAddress: req.ip });
+      await writeAudit(pool, {
+        tenantId: row.tenantId, eventType: 'passkey_login_failed',
+        metadata: { reason: result.failureReason ?? 'verification_failed' }, ipAddress: req.ip,
+      });
       return genericFailure();
+    }
+
+    const { anomaly } = evaluateCounterAdvance(row.counter, result.authenticationInfo.newCounter);
+    if (anomaly) {
+      // Flagged, not blocked: matches @simplewebauthn/server's own precedent of treating a
+      // stalled nonzero counter as a "possible clone" warning rather than a hard rejection
+      // (see the schema comment on passkey_credentials.counter) — this app has no
+      // auto-lockout mechanism anywhere else either, favoring audit-log-driven human review.
+      // The counter is still updated below so a real clone racing the legitimate device
+      // doesn't keep tripping this on every subsequent legitimate login.
+      await writeAudit(pool, {
+        tenantId: row.tenantId, actorUserId: row.userId, eventType: 'passkey_counter_anomaly',
+        targetType: 'passkey_credential', targetId: row.id,
+        metadata: { storedCounter: row.counter, newCounter: result.authenticationInfo.newCounter }, ipAddress: req.ip,
+      });
     }
 
     await pool.query(
