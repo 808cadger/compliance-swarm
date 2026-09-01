@@ -21,6 +21,9 @@ process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 // them reachable to cover the ProcessPass flows at all. This has no effect on any
 // non-ProcessPass route or test — DEMO_MODE only gates the additional demo-identity surface.
 process.env.DEMO_MODE ??= 'true';
+// config.js requires this alongside DEMO_MODE in every environment, tests included — see its
+// own comment for why NODE_ENV can't be used to tell dev/test apart from production here.
+process.env.CONFIRM_DEMO_MODE ??= 'true';
 
 // media.js reads this at import time to size multer's upload limit. Production leaves it
 // unset and gets the real 500MB ceiling; tests get a small one so the 413 path can be

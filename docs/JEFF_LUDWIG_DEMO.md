@@ -13,10 +13,13 @@ cd server
 cp .env.example .env   # first time only — then edit COOKIE_SECRET/passwords for anything beyond a laptop demo
 ```
 
-Add this line to `server/.env` (not committed — see `.env.example`'s comments):
+Add these two lines to `server/.env` (not committed — see `.env.example`'s comments).
+`CONFIRM_DEMO_MODE` is a deliberate double opt-in config.js requires alongside `DEMO_MODE` in
+any environment — see its own comment for why a single flag isn't enough here:
 
 ```
 DEMO_MODE=true
+CONFIRM_DEMO_MODE=true
 ```
 
 Bring up the dev stack (Postgres + app, on `localhost:4211`; see `docker-compose.dev.yml` for
@@ -43,7 +46,7 @@ Run from the host — it talks to dev Postgres over its published port, same as 
 does (`server/.env.example`'s `TEST_DATABASE_URL` comment explains the port convention):
 
 ```bash
-DEMO_MODE=true DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm \
+DEMO_MODE=true CONFIRM_DEMO_MODE=true DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm \
   node scripts/seed-demo.js
 ```
 
@@ -54,8 +57,11 @@ Accounting Demo User/accounting — each flagged `is_demo_persona`, which is wha
 job sites, and one site assignment for the Field Worker persona. **Unknown Visitor is not a
 seeded account** — it's a UI choice with no backing row, by design.
 
-To start over: `... node scripts/seed-demo.js --reset` (wipes and recreates just that one
-tenant — nothing else in the database is touched).
+To start over: `... node scripts/seed-demo.js --reset` (wipes and recreates the demo tenant's
+users, sites, sessions, and filed data; nothing else in the database is touched). The tenant
+row and its audit history are kept and reused across resets rather than deleted — this script
+runs as the same restricted database role the app uses, which never has DELETE on `audit_log`,
+by design.
 
 ## 3. Open the kiosk
 
@@ -79,9 +85,10 @@ tenant — nothing else in the database is touched).
    I have access?" on any card to show the non-sensitive reasons.
 6. **Start Owner Process** — opens the real, connected `/dashboard/owner` (today's
    assignments, filed receipts — real tenant data, not a mock).
-7. Go back to My Processes, click **Verify & Start** on **AccountingSnap**. A modal asks for
-   the demo PIN (**1234**) — this is the high-risk-action step-up moment. Confirm, and the real
-   AccountingSnap dashboard opens.
+7. Go back to My Processes, click **Verify & Start** on **AccountingSnap**. A modal asks for a
+   one-time code — this is the high-risk-action step-up moment. The modal itself shows the
+   code (it's random per session, not a fixed value — a real deployment would text or push it
+   instead of displaying it here). Confirm, and the real AccountingSnap dashboard opens.
 8. **Sign out** (top right of My Processes). This logs `processpass_session_ended` and clears
    the session.
 9. Back at the kiosk, tap **Identify Me** → **Field Worker Demo User**. My Processes now shows
@@ -118,7 +125,7 @@ this isn't all simulated:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 # Seed / reset demo data
-DEMO_MODE=true DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm \
+DEMO_MODE=true CONFIRM_DEMO_MODE=true DATABASE_URL=postgres://compliance_swarm_app:changeme-app@localhost:5433/compliance_swarm \
   node scripts/seed-demo.js [--reset]
 
 # Run the test suite (requires TEST_DATABASE_URL; see server/.env.example)
@@ -135,6 +142,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml down
 | Variable | Value for this demo | Why |
 |---|---|---|
 | `DEMO_MODE` | `true` | Gates every ProcessPass demo-identity route. Off by default — no password-free entry in a real deployment. |
+| `CONFIRM_DEMO_MODE` | `true` | Required alongside `DEMO_MODE` in every environment — config.js refuses to start with `DEMO_MODE=true` alone, so a stray value can't silently open the demo door. |
 
 `PROCESS_STATIC_ROOT` is not needed for this demo — the image (`server/Dockerfile`, built with
 the repo root as its context) already bakes in `agents/`/`shared/`/`config/`/`templates/` at the
@@ -150,6 +158,9 @@ paths `server/src/app.js`'s static mounts expect by default, in both dev and pro
 - **The persona grid is empty / "Demo Mode is not enabled."** `DEMO_MODE` isn't `true` in the
   running container's environment — check `server/.env` and restart the stack (compose only
   re-reads `.env` on `up`, not automatically).
+- **The app container exits immediately after `up`.** Check `docker logs compliance-swarm-app-dev`
+  for `DEMO_MODE=true refused to start without CONFIRM_DEMO_MODE=true` — both must be set
+  together in `server/.env`.
 - **A demo persona won't sign in / 404 on the whole flow.** Re-run
   `node scripts/seed-demo.js` — nothing is seeded until that's been run once against this
   Postgres volume.

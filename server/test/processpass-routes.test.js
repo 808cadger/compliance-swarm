@@ -4,7 +4,7 @@ import request from 'supertest';
 import sign from 'cookie-signature';
 import { getTestPool, resetDb } from './helpers/db.js';
 import { hashPassword } from '../src/auth/hash.js';
-import { createSession } from '../src/auth/session.js';
+import { createSession, hashDemoStepUpPin } from '../src/auth/session.js';
 import { createApp } from '../src/app.js';
 
 const pool = getTestPool();
@@ -148,8 +148,13 @@ test('the demo identify endpoint refuses to authenticate a real (non-demo-flagge
 test('a step-up-required action cannot complete without the simulated second factor', async () => {
   const accounting = await seedRealUser('accounting');
   // Force this session into demo assurance directly — same effect as arriving via
-  // ProcessPass, without re-driving the whole identify flow just for this test.
-  await pool.query(`UPDATE sessions SET auth_method = 'demo_identity', assurance_level = 'demo' WHERE user_id = $1`, [accounting.userId]);
+  // ProcessPass, without re-driving the whole identify flow just for this test. Plants a known
+  // PIN hash the same way createSession() would, since the real flow generates one at random.
+  const knownPin = '7391';
+  await pool.query(
+    `UPDATE sessions SET auth_method = 'demo_identity', assurance_level = 'demo', step_up_pin_hash = $2 WHERE user_id = $1`,
+    [accounting.userId, hashDemoStepUpPin(knownPin)],
+  );
   const { rows: [receipt] } = await pool.query(
     `INSERT INTO receipts (tenant_id, uploaded_by, storage_key, kind, mime_type, size_bytes)
      VALUES ($1, $2, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg', 'receipt', 'image/jpeg', 100) RETURNING id`,
@@ -167,7 +172,7 @@ test('a step-up-required action cannot complete without the simulated second fac
   const stillDenied = await request(app).delete(`/api/receipts/${receipt.id}`).set('Cookie', [accounting.cookie]);
   assert.equal(stillDenied.status, 403);
 
-  const stepUp = await request(app).post('/api/processpass/step-up').set('Cookie', [accounting.cookie]).send({ pin: '1234' });
+  const stepUp = await request(app).post('/api/processpass/step-up').set('Cookie', [accounting.cookie]).send({ pin: knownPin });
   assert.equal(stepUp.status, 200);
 
   const nowAllowed = await request(app).delete(`/api/receipts/${receipt.id}`).set('Cookie', [accounting.cookie]);

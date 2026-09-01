@@ -38,9 +38,13 @@ async function wipeDemoTenant(tenantId) {
   await pool.query(`DELETE FROM assignments WHERE tenant_id = $1`, [tenantId]);
   await pool.query(`DELETE FROM sites WHERE tenant_id = $1`, [tenantId]);
   await pool.query(`DELETE FROM sessions WHERE tenant_id = $1`, [tenantId]);
-  await pool.query(`DELETE FROM audit_log WHERE tenant_id = $1`, [tenantId]);
   await pool.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId]);
-  await pool.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
+  // Deliberately NOT deleting audit_log rows or the tenant row itself: this script runs with
+  // the same restricted compliance_swarm_app role the app uses, which only ever has
+  // SELECT/INSERT on audit_log — DELETE was withheld on purpose so an audit trail can't be
+  // erased by anything short of a superuser (see 002_grants.sh) — the demo tenant's audit
+  // history is no exception. A --reset reuses the same tenant row and just accumulates audit
+  // history across resets instead.
 }
 
 async function seedUser(tenantId, { email, displayName, role }) {
@@ -51,9 +55,13 @@ async function seedUser(tenantId, { email, displayName, role }) {
     [tenantId, email, hash, role, displayName],
   );
   await pool.query(
+    // Separate placeholders for the same value ($2, $4), not one reused across actor_user_id
+    // (uuid) and target_id (text) — Postgres deduces a single type per parameter number across
+    // the whole statement, so reusing one number between a uuid and a text column errors
+    // ("inconsistent types deduced"), cast or not.
     `INSERT INTO audit_log (tenant_id, actor_user_id, event_type, target_type, target_id, metadata)
-     VALUES ($1, $2, 'user_created', 'user', $2, $3)`,
-    [tenantId, user.id, JSON.stringify({ role, seeded: true, demo: true })],
+     VALUES ($1, $2, 'user_created', 'user', $4, $3)`,
+    [tenantId, user.id, JSON.stringify({ role, seeded: true, demo: true }), user.id],
   );
   return user.id;
 }
@@ -64,17 +72,14 @@ async function main() {
   if (tenantId && reset) {
     console.log(`Resetting existing demo tenant ${tenantId}...`);
     await wipeDemoTenant(tenantId);
-    tenantId = null;
-  }
-
-  if (tenantId) {
+  } else if (tenantId) {
     console.log(`Demo tenant already seeded (${tenantId}). Re-run with --reset to start clean.`);
     await pool.end();
     return;
+  } else {
+    const { rows: [tenant] } = await pool.query(`INSERT INTO tenants (name) VALUES ($1) RETURNING id`, [DEMO_TENANT_NAME]);
+    tenantId = tenant.id;
   }
-
-  const { rows: [tenant] } = await pool.query(`INSERT INTO tenants (name) VALUES ($1) RETURNING id`, [DEMO_TENANT_NAME]);
-  tenantId = tenant.id;
 
   await seedUser(tenantId, { email: 'jeff.ludwig@demo.processpass.local', displayName: 'Jeff Ludwig', role: 'owner_admin' });
   const foremanId = await seedUser(tenantId, { email: 'foreman.demo@demo.processpass.local', displayName: 'Foreman Demo User', role: 'supervisor' });

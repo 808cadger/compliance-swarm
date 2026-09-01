@@ -28,3 +28,22 @@ export const config = {
 
 if (!config.databaseUrl) throw new Error('DATABASE_URL is required');
 if (!config.cookieSecret) throw new Error('COOKIE_SECRET is required');
+
+// DEMO_MODE opens a password-free way into any account flagged is_demo_persona (see
+// routes/processpass.js). NODE_ENV can't be used to tell a real deployment apart from a
+// rehearsal here — both this app's dev and production Docker builds run NODE_ENV=production;
+// only the surrounding compose file/ports/container names differ, invisibly to this process
+// (see docker-compose.dev.yml's own comment on why). So instead of trying to detect
+// "production" and getting it wrong, DEMO_MODE always requires a second, differently-named
+// flag no matter the environment — the exact failure mode this guards against is a stray
+// DEMO_MODE=true surviving an .env copy-paste (e.g. cloning a dev .env onto the production
+// host), and a second flag under a different name is much less likely to travel along with it
+// by accident. Refusing to even start is the same "loud config error over silent
+// misbehavior" posture the rest of this repo's tripwires use.
+if (config.demoMode && process.env.CONFIRM_DEMO_MODE !== 'true') {
+  throw new Error(
+    'DEMO_MODE=true refused to start without CONFIRM_DEMO_MODE=true also set: this would open a ' +
+    'password-free login path. Set both explicitly if a demo/rehearsal environment is really ' +
+    'what you mean to run — see docs/JEFF_LUDWIG_DEMO.md.'
+  );
+}
