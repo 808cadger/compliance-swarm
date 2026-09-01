@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProcessPass — Identity Verification</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self'">
+<link rel="stylesheet" href="/processpass/assets/processpass.css">
+</head>
+<body class="pp-body">
+  <div class="pp-shell">
+    <div class="pp-brandmark"><span class="pp-dot"></span> ProcessPass</div>
+
+    <div class="pp-card">
+      <div style="display:flex; justify-content:center; margin-bottom:1rem;">
+        <span class="pp-demo-badge">⚠ Demo Mode</span>
+      </div>
+      <h1 class="pp-h1" style="font-size:1.5rem;">Verifying your identity</h1>
+      <p class="pp-sub" style="font-size:0.92rem;">
+        This is a simulated identity check for demonstration purposes. No camera image is
+        stored, and no real facial recognition is performed — selecting a persona below (or a
+        real biometric/passkey provider, in production) is what actually authenticates you;
+        everything after that point — your tenant, role, Process permissions, session, and
+        audit trail — is real and enforced by the backend.
+      </p>
+
+      <div class="pp-camera" id="cameraPanel">
+        <video id="cameraVideo" autoplay playsinline muted style="display:none;"></video>
+        <div class="pp-camera-sim-icon" id="cameraSim">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.4"/></svg>
+          <div class="pp-camera-sim-label" id="cameraSimLabel">Simulated camera preview</div>
+        </div>
+        <div class="pp-camera-ring" id="cameraRing"></div>
+      </div>
+
+      <ul class="pp-steps" id="steps">
+        <li data-step="camera"><span class="pp-step-dot">✓</span> Camera ready</li>
+        <li data-step="liveness"><span class="pp-step-dot">✓</span> Checking liveness</li>
+        <li data-step="identity"><span class="pp-step-dot">✓</span> Verifying identity</li>
+        <li data-step="policy"><span class="pp-step-dot">✓</span> Checking access policy</li>
+      </ul>
+
+      <p class="pp-hint" id="selectorHint">Demo Mode — choose who is stepping up to the camera:</p>
+      <div class="pp-persona-grid" id="personaGrid"></div>
+      <p class="pp-msg pp-msg-muted" id="verifyMsg"></p>
+
+      <div style="display:flex; gap:0.75rem; margin-top:1.5rem; flex-wrap:wrap;">
+        <a href="/login" class="pp-btn pp-btn-secondary" style="flex:1; min-width:12rem; text-decoration:none;">Use passkey / PIN / secure sign-in</a>
+        <button id="cancelBtn" class="pp-btn pp-btn-secondary" style="flex:1; min-width:8rem;">Cancel</button>
+      </div>
+    </div>
+
+    <p class="pp-footer">Demo identities are seeded accounts, clearly labeled. No biometric data is ever collected or stored.</p>
+  </div>
+
+  <script src="/processpass/assets/verify.js"></script>
+</body>
+</html>

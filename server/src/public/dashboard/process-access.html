@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process Access — Dashboard</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self'">
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 0 auto; padding: 1rem; }
+  nav { margin-bottom: 1rem; font-size: 0.9rem; }
+  nav a { color: #1a5f38; margin-right: 1rem; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; font-size: 0.85rem; vertical-align: middle; }
+  select { font-size: 0.85rem; padding: 0.2rem; }
+  .role-badge { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: #666; }
+  .overridden { background: #fff8e6; }
+  label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
+  input, select.wide { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
+  button { padding: 0.4rem 0.8rem; font-size: 0.9rem; }
+  #siteList { list-style: none; padding: 0; margin-top: 0.5rem; }
+  #siteList li { display: flex; align-items: center; gap: 0.75rem; padding: 0.35rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  #siteList button { margin-left: auto; }
+  .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
+  .msg.ok { background: #e6f4ea; color: #1e4620; }
+  .msg.err { background: #fdecea; color: #7a271a; }
+</style>
+</head>
+<body>
+  <nav><a href="/processpass/decision">← My Processes</a><a href="/dashboard/audit">Audit Trail</a></nav>
+  <h1>Process Access</h1>
+  <p style="color:#555; font-size:0.9rem;">
+    Adjustments here apply only to this organization. "Default" always means the value
+    ProcessPass ships with; changing it here writes a tenant-specific override that
+    <code>evaluateProcessAccess()</code> reads on every access decision.
+  </p>
+
+  <fieldset>
+    <legend>Role → Process access</legend>
+    <table>
+      <thead><tr><th>Role</th><th>Process</th><th>Access</th><th>Requires assigned site</th></tr></thead>
+      <tbody id="accessBody"></tbody>
+    </table>
+  </fieldset>
+
+  <fieldset>
+    <legend>Site assignments</legend>
+    <p style="color:#555; font-size:0.85rem; margin-top:0;">
+      Who is on the standing roster for a job site — what a Process marked "requires assigned
+      site" above checks. Field Worker uses this by default; a Foreman only if you've set
+      "Requires assigned site" to Yes for ForemanSnap above.
+    </p>
+    <label>User
+      <select id="userSelect" class="wide"></select>
+    </label>
+    <ul id="siteList"></ul>
+    <label>Assign to a site
+      <select id="siteSelect" class="wide"></select>
+    </label>
+    <button id="assignBtn" type="button">Assign</button>
+    <div id="siteMsg"></div>
+  </fieldset>
+
+  <script type="module" src="/assets/process-access.js"></script>
+</body>
+</html>

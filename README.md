@@ -63,6 +63,60 @@ elsewhere in this app (accepted as low-risk in a local/trusted context) becomes 
 risk on a public host with a real key stored, since anything that can run script on that origin
 can read `localStorage`.
 
+## The backend (server/)
+
+A separate, real Express + Postgres backend lives in `server/` — tenants, users, roles
+(`owner_admin`, `supervisor`, `accounting`, `field_worker`), signed-cookie sessions, tenant-scoped
+authorization on every route, an append-only `audit_log`, and role-gated dashboards
+(`/dashboard/owner`, `/dashboard/supervisor`, `/dashboard/accounting`, `/dashboard/audit`) that
+call real `/api/*` endpoints — walkthroughs, sites, assignments, receipts/invoices, media
+uploads. See `server/README`-equivalent context in `docs/superpowers/` and
+`server/.env.example` for how to run it. This backend and the agent demo pages above used to be
+fully separate; ProcessPass (below) connects them.
+
+## Processes and ProcessPass
+
+**"Processes"** is this app's word for the things a signed-in person can open — what the code
+above calls "agents" (Payroll/Books/Contract/FieldSnap/ShelfSnap/OfficeSnap) and what the
+backend's dashboards do (Owner/ForemanSnap/AccountingSnap/audit). User-facing copy says
+"Process," "Start Process," and "My Processes." Nothing underneath was renamed to match: route
+paths (`/api/*`, `/dashboard/*`), the Docker service name (`app`), the `user_role` enum values,
+and the `agents/`/`shared/` directory names are all unchanged — renaming any of those is a real
+migration with no user-facing benefit, so it was deliberately left alone. The catalog of what a
+Process *is* (name, purpose, which roles may open it) lives in
+`server/db/init/010_processpass_schema.sql` and `server/src/services/processAccess.js`, not
+hardcoded per page.
+
+**ProcessPass** is a demo-safe, consent-based visual identity flow in front of that catalog:
+someone taps "Identify Me" at `/processpass`, a camera preview (or a polished simulated one,
+if no camera is available/granted) runs a simulated liveness/identity check, and the backend
+then evaluates real tenant/role/assignment policy to decide which Processes to show —
+`server/src/services/processAccess.js`'s `evaluateProcessAccess()`, enforced on the backend for
+every Process, not just hidden in the UI. **The identity step is simulated; everything after it
+— tenant, role, Process permission, session, and audit logging — is real**, the same
+session/authenticate/audit machinery a password login uses. See
+`docs/JEFF_LUDWIG_DEMO.md` for the full walkthrough and exact commands, and `server/.env.example`
+for the `DEMO_MODE` flag that gates the whole feature off by default.
+
+Two things beyond the demo itself are real, production-shaped identity/access machinery, not
+demo scaffolding:
+
+- **Passkeys** (`/dashboard/passkeys`, `server/src/routes/webauthn.js`) — a real WebAuthn
+  registration/sign-in flow (via `@simplewebauthn/server`), the actual "swap in a real
+  biometric/passkey provider" this whole feature was built to support. A signed-in user adds a
+  passkey once; afterward `/login`'s "Sign in with a passkey" button authenticates with it
+  directly, no password, no demo flag. Origin-bound like all WebAuthn — see
+  `server/.env.example`'s `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`.
+- **Process Access admin** (`/dashboard/process-access`, owner-only) — a real settings UI over
+  `role_process_access`'s per-tenant overrides (`tenant_process_overrides`), not a
+  migration-only catalog. An owner can force-allow/deny a role's access to a Process, or turn
+  on "requires an assigned job site" for any role/Process pair (e.g. scoping ForemanSnap the
+  same way FieldSnap already scopes Field Worker), all tenant-scoped — one tenant's changes
+  never affect another's. Site rosters themselves are managed from the same page.
+
 ## Status
 
-Prototype stage. Not legal, tax, or accounting advice. Every agent's output needs human review before being acted on.
+Prototype stage. Not legal, tax, or accounting advice. Every agent's output needs human review
+before being acted on. ProcessPass is a demo-safe prototype of a *product concept*, not a claim
+of production-grade facial recognition — see `docs/JEFF_LUDWIG_DEMO.md` for exactly what is
+simulated versus enforced for real.

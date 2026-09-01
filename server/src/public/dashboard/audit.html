@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit Trail — Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 1rem; }
+  nav { margin-bottom: 1rem; font-size: 0.9rem; }
+  nav a { color: #1a5f38; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #eee; font-size: 0.82rem; vertical-align: top; }
+  td.event { font-weight: 600; }
+  td.meta { color: #666; font-family: ui-monospace, monospace; font-size: 0.75rem; max-width: 20rem; word-break: break-word; }
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+  .badge.pp { background: #fff2d9; color: #8a5a00; }
+</style>
+</head>
+<body>
+  <nav><a href="/processpass/decision">← My Processes</a><a href="/dashboard/passkeys">Passkeys</a></nav>
+  <h1>Audit Trail</h1>
+  <p style="color:#555; font-size:0.9rem;">Read-only. The most recent 200 events for this organization, including every ProcessPass access decision.</p>
+
+  <fieldset>
+    <legend>Recent events</legend>
+    <table>
+      <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Target</th><th>Metadata</th></tr></thead>
+      <tbody id="eventsBody"></tbody>
+    </table>
+  </fieldset>
+
+  <form onsubmit="event.preventDefault(); fetch('/api/auth/logout', {method:'POST'}).then(() => location.href='/login');">
+    <button type="submit">Log out</button>
+  </form>
+
+  <script>
+    function fmtTarget(row) {
+      if (!row.targetType) return '';
+      return `${row.targetType}:${row.targetId ?? ''}`;
+    }
+
+    async function loadEvents() {
+      const res = await fetch('/api/audit');
+      const tbody = document.getElementById('eventsBody');
+      tbody.innerHTML = '';
+      if (!res.ok) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.textContent = 'Could not load the audit trail.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      const rows = await res.json();
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+
+        const whenTd = document.createElement('td');
+        whenTd.textContent = new Date(r.createdAt).toLocaleString();
+
+        const eventTd = document.createElement('td');
+        eventTd.className = 'event';
+        eventTd.textContent = r.eventType;
+        if (r.eventType.startsWith('processpass_') || r.eventType === 'process_started') {
+          const badge = document.createElement('span');
+          badge.className = 'badge pp';
+          badge.textContent = 'ProcessPass';
+          badge.style.marginLeft = '0.4rem';
+          eventTd.appendChild(badge);
+        }
+
+        const actorTd = document.createElement('td');
+        actorTd.textContent = r.actorDisplayName || (r.actorUserId ? r.actorUserId : '—');
+
+        const targetTd = document.createElement('td');
+        targetTd.textContent = fmtTarget(r);
+
+        const metaTd = document.createElement('td');
+        metaTd.className = 'meta';
+        metaTd.textContent = Object.keys(r.metadata || {}).length ? JSON.stringify(r.metadata) : '';
+
+        tr.append(whenTd, eventTd, actorTd, targetTd, metaTd);
+        tbody.appendChild(tr);
+      }
+    }
+
+    loadEvents();
+  </script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Processes — ProcessPass</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self'">
+<link rel="stylesheet" href="/processpass/assets/processpass.css">
+</head>
+<body class="pp-body">
+  <div class="pp-shell" style="max-width:960px;">
+    <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+      <div class="pp-brandmark" style="margin-bottom:0;"><span class="pp-dot"></span> ProcessPass</div>
+      <button id="signOutBtn" class="pp-btn-ghost" style="display:none;">Sign out</button>
+    </div>
+
+    <div class="pp-card" id="card">
+      <p class="pp-msg pp-msg-muted" id="loadingMsg">Loading your Processes…</p>
+    </div>
+
+    <p class="pp-footer" id="footerNote"></p>
+  </div>
+
+  <div class="pp-modal-backdrop" id="stepUpBackdrop">
+    <div class="pp-modal">
+      <h2>Additional verification required</h2>
+      <p>This Process handles sensitive or financial records. Confirm with the one-time code below to continue — a real deployment would use a passkey or a real second factor here.</p>
+      <div class="pp-modal-hint" id="stepUpHint"></div>
+      <input id="stepUpPin" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+      <div class="pp-modal-err" id="stepUpErr"></div>
+      <div class="pp-modal-actions">
+        <button class="pp-btn pp-btn-secondary" id="stepUpCancel">Cancel</button>
+        <button class="pp-btn pp-btn-primary" id="stepUpConfirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/processpass/assets/decision.js"></script>
+</body>
+</html>

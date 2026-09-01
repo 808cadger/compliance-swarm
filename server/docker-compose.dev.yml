@@ -28,8 +28,42 @@ services:
     container_name: compliance-swarm-app-dev
     ports: !override
       - "127.0.0.1:4211:4210"
+    # DEMO_MODE defaults off even in dev — a rehearsal run exports it explicitly (see
+    # docs/JEFF_LUDWIG_DEMO.md) rather than this file turning it on implicitly.
+    #
+    # The image itself already bakes in agents/shared/config/templates at the right paths
+    # (../Dockerfile's build context is the repo root — see docker-compose.yml), so none of
+    # this is required for OfficeSnap/FieldSnap's "Start Process" links to resolve. The bind
+    # mounts below are a pure dev convenience layered on top: they let edits to those four
+    # directories show up on a page reload, without rebuilding the image, the same way editing
+    # server/src doesn't require one either (that's not true in dev Docker the way it is for
+    # `npm start` on bare Node, since there's no live source mount for src/ — these are the
+    # closest equivalent for the static Process prototypes specifically). PROCESS_STATIC_ROOT
+    # only needs setting here because the bind mounts target /app/agents etc, matching what
+    # the image already resolves to by default — remove both together if the live-edit
+    # convenience isn't wanted.
+    environment:
+      DEMO_MODE: ${DEMO_MODE:-false}
+      # config.js refuses to start with DEMO_MODE=true unless this is also set — see its own
+      # comment for why. Defaults to false same as DEMO_MODE, so this overlay is still safe by
+      # default; a rehearsal run exports both explicitly (see docs/JEFF_LUDWIG_DEMO.md).
+      CONFIRM_DEMO_MODE: ${CONFIRM_DEMO_MODE:-false}
+      PROCESS_STATIC_ROOT: /app
+      # config.js's own bare fallback (http://localhost:${PORT}) uses PORT=4210 — the
+      # container's *internal* port, which is correct for production (published 1:1) but wrong
+      # here: this overlay remaps 4210 to host port 4211 (see `ports:` above), so a browser's
+      # actual origin during a WebAuthn ceremony is localhost:4211, not :4210. Without this,
+      # every passkey registration/login in the dev stack fails verification with a generic
+      # "Could not verify" — found by actually running the ceremony against this stack, not
+      # just reading the code. RP_ID stays 'localhost' either way (a port isn't part of it).
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:4211}
     volumes:
       - media_data_dev:/data/media
+      - ../agents:/app/agents:ro
+      - ../shared:/app/shared:ro
+      - ../config:/app/config:ro
+      - ../templates:/app/templates:ro
 
 volumes:
   media_data_dev:

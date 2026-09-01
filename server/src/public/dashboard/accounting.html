@@ -21,10 +21,13 @@
   .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
   .msg.ok { background: #e6f4ea; color: #1e4620; }
   .msg.err { background: #fdecea; color: #7a271a; }
+  nav { margin-bottom: 1rem; font-size: 0.9rem; }
+  nav a { color: #1a5f38; }
 </style>
 </head>
 <body>
-  <h1>Accounting</h1>
+  <nav><a href="/processpass/decision">← My Processes</a><a href="/dashboard/passkeys">Passkeys</a></nav>
+  <h1>AccountingSnap</h1>
 
   <fieldset>
     <legend>File a Receipt or Invoice</legend>
@@ -68,13 +71,32 @@
         label.textContent = `${r.kind} — ${r.uploadedByName}`;
         const del = document.createElement('button');
         del.textContent = 'Delete';
-        del.addEventListener('click', async () => {
-          await fetch(`/api/receipts/${r.id}`, { method: 'DELETE' });
-          loadReceipts();
-        });
+        del.addEventListener('click', () => deleteReceipt(r.id));
         li.append(img, label, del);
         list.appendChild(li);
       }
+    }
+
+    // ProcessPass demo sessions require a step-up confirmation before this action completes
+    // (see requireStepUp in server/src/routes/receipts.js); a real password-authenticated
+    // accounting user never sees this prompt — the DELETE just succeeds on the first try.
+    async function deleteReceipt(id) {
+      const res = await fetch(`/api/receipts/${id}`, { method: 'DELETE' });
+      if (res.ok) { loadReceipts(); return; }
+      const body = await res.json().catch(() => ({}));
+      if (body?.error?.code !== 'step_up_required') { loadReceipts(); return; }
+      const hint = sessionStorage.getItem('pp:stepUpPin');
+      const promptText = hint
+        ? `Additional verification required to delete filed evidence.\nEnter your one-time code (${hint}):`
+        : 'Additional verification required to delete filed evidence.\nEnter your one-time code (check the ProcessPass My Processes screen):';
+      const pin = prompt(promptText);
+      if (!pin) return;
+      const stepUp = await fetch('/api/processpass/step-up', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),
+      });
+      if (!stepUp.ok) { alert('Incorrect PIN.'); return; }
+      await fetch(`/api/receipts/${id}`, { method: 'DELETE' });
+      loadReceipts();
     }
 
     loadReceipts();

@@ -29,7 +29,10 @@ test('createSession then lookupSession returns the session', async () => {
   const { tenantId, userId } = await seedUser();
   const { token } = await createSession(pool, { userId, tenantId });
   const result = await lookupSession(pool, token);
-  assert.deepEqual(result, { userId, tenantId, role: 'owner_admin' });
+  assert.deepEqual(result, {
+    userId, tenantId, role: 'owner_admin',
+    authMethod: 'password', assuranceLevel: 'standard', stepUpValid: false,
+  });
 });
 
 test('lookupSession returns null for unknown token', async () => {
@@ -75,7 +78,10 @@ test('refreshSession extends expires_at and updates last_seen_at', async () => {
 
   // And the refreshed session is still usable.
   const result = await lookupSession(pool, token);
-  assert.deepEqual(result, { userId, tenantId, role: 'owner_admin' });
+  assert.deepEqual(result, {
+    userId, tenantId, role: 'owner_admin',
+    authMethod: 'password', assuranceLevel: 'standard', stepUpValid: false,
+  });
 });
 
 test('lookupSession rejects a session past its idle expiry, even with a recent created_at', async () => {
