@@ -29,7 +29,11 @@ export async function buildRegistrationOptions({ userId, userEmail, userDisplayN
     // otherwise a platform authenticator may treat it as a different account.
     userID: Buffer.from(userId.replace(/-/g, ''), 'hex'),
     excludeCredentials,
-    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+    // 'required', not 'preferred': this app has no separate privileged-step-up ceremony —
+    // registration and login (below) are the only two WebAuthn ceremonies that exist, and
+    // login is itself the assurance-granting event (assurance_level='elevated'), so it must
+    // actually prove verification (PIN/biometric/etc.), not just presence.
+    authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
   });
 }
 
@@ -51,7 +55,8 @@ export async function verifyRegistration({ response, expectedChallenge }) {
 export async function buildAuthenticationOptions() {
   return generateAuthenticationOptions({
     rpID: config.webauthnRpId,
-    userVerification: 'preferred',
+    // See the matching comment in buildRegistrationOptions above.
+    userVerification: 'required',
   });
 }
 

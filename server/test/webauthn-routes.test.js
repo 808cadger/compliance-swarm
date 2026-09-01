@@ -176,3 +176,66 @@ test('DELETE /api/webauthn/credentials/:id removes the caller\'s own passkey and
   const { rows } = await pool.query(`SELECT event_type FROM audit_log WHERE event_type = 'passkey_removed'`);
   assert.equal(rows.length, 1);
 });
+
+// --- Hardening pass: audit coverage for previously-silent failure paths -----------------
+
+test('register/options is itself audited as a started attempt', async () => {
+  const { cookie, userId } = await seedUserWithCookie();
+  await request(createApp()).post('/api/webauthn/register/options').set('Cookie', [cookie]);
+
+  const { rows } = await pool.query(
+    `SELECT event_type FROM audit_log WHERE event_type = 'passkey_registration_started' AND actor_user_id = $1`,
+    [userId],
+  );
+  assert.equal(rows.length, 1);
+});
+
+test('register/verify audits an unknown/expired/wrong-user ceremony as passkey_challenge_invalid', async () => {
+  const { cookie, tenantId, userId } = await seedUserWithCookie();
+  const res = await request(createApp())
+    .post('/api/webauthn/register/verify')
+    .set('Cookie', [cookie])
+    .send({ ceremonyId: 'not-a-real-ceremony', response: {} });
+  assert.equal(res.status, 400);
+
+  const { rows } = await pool.query(
+    `SELECT tenant_id AS "tenantId", actor_user_id AS "actorUserId", metadata
+     FROM audit_log WHERE event_type = 'passkey_challenge_invalid'`,
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].tenantId, tenantId);
+  assert.equal(rows[0].actorUserId, userId);
+  assert.equal(rows[0].metadata.ceremonyPurpose, 'register');
+});
+
+test('register/verify with a valid ceremony but an unparseable response audits a captured failure reason', async () => {
+  const { cookie } = await seedUserWithCookie();
+  const options = await request(createApp()).post('/api/webauthn/register/options').set('Cookie', [cookie]);
+
+  const res = await request(createApp())
+    .post('/api/webauthn/register/verify')
+    .set('Cookie', [cookie])
+    .send({ ceremonyId: options.body.ceremonyId, response: { garbage: true } });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'verification_failed');
+  // Generic to the client either way — the point of this test is the audit side, not the response.
+
+  const { rows } = await pool.query(`SELECT metadata FROM audit_log WHERE event_type = 'passkey_registration_failed'`);
+  assert.equal(rows.length, 1);
+  assert.equal(typeof rows[0].metadata.reason, 'string');
+  assert.ok(rows[0].metadata.reason.length > 0, 'a specific reason should be captured server-side, not just a generic bucket');
+});
+
+test('login/verify audits an unknown/expired/replayed ceremony as passkey_challenge_invalid, tenant unknown', async () => {
+  const res = await request(createApp())
+    .post('/api/webauthn/login/verify')
+    .send({ ceremonyId: 'not-a-real-ceremony', response: { id: 'whatever' } });
+  assert.equal(res.status, 401);
+
+  const { rows } = await pool.query(
+    `SELECT tenant_id AS "tenantId", metadata FROM audit_log WHERE event_type = 'passkey_challenge_invalid'`,
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].tenantId, null);
+  assert.equal(rows[0].metadata.ceremonyPurpose, 'login');
+});
