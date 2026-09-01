@@ -81,7 +81,11 @@
       if (res.ok) { loadReceipts(); return; }
       const body = await res.json().catch(() => ({}));
       if (body?.error?.code !== 'step_up_required') { loadReceipts(); return; }
-      const pin = prompt('Additional verification required to delete filed evidence.\nEnter the demo PIN (1234):');
+      const hint = sessionStorage.getItem('pp:stepUpPin');
+      const promptText = hint
+        ? `Additional verification required to delete filed evidence.\nEnter your one-time code (${hint}):`
+        : 'Additional verification required to delete filed evidence.\nEnter your one-time code (check the ProcessPass My Processes screen):';
+      const pin = prompt(promptText);
       if (!pin) return;
       const stepUp = await fetch('/api/processpass/step-up', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),

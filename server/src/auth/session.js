@@ -10,8 +10,26 @@ const KIOSK_SESSION_IDLE_MINUTES = 10;
 
 const STEP_UP_MINUTES = 5;
 
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
 function hashToken(token) {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  return sha256Hex(token);
+}
+
+// Exported (not just used internally) so tests can plant a session with a known PIN without
+// re-driving the whole /identify flow — see test/processpass-routes.test.js.
+export function hashDemoStepUpPin(pin) {
+  return sha256Hex(String(pin));
+}
+
+// Drawn from a cryptographically random source, unique per session — replaces a fixed,
+// publicly-documented value ('1234') that anyone reading this repo's history could use against
+// a real running demo session. Still explicitly a *simulated* second factor (see
+// requireStepUp.js): it's never asked of a real password/passkey login.
+function generateDemoStepUpPin() {
+  return String(crypto.randomInt(0, 10000)).padStart(4, '0');
 }
 
 export async function createSession(pool, {
@@ -21,12 +39,24 @@ export async function createSession(pool, {
   const token = crypto.randomBytes(32).toString('hex');
   const idleMs = (authMethod === 'demo_identity' ? KIOSK_SESSION_IDLE_MINUTES * 60 : SESSION_IDLE_HOURS * 3600) * 1000;
   const expiresAt = new Date(Date.now() + idleMs);
+  const stepUpPin = authMethod === 'demo_identity' ? generateDemoStepUpPin() : null;
   await pool.query(
-    `INSERT INTO sessions (token_hash, user_id, tenant_id, ip_address, user_agent, expires_at, auth_method, assurance_level, device_context)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [hashToken(token), userId, tenantId, ipAddress ?? null, userAgent ?? null, expiresAt, authMethod, assuranceLevel, JSON.stringify(deviceContext ?? {})],
+    `INSERT INTO sessions (token_hash, user_id, tenant_id, ip_address, user_agent, expires_at, auth_method, assurance_level, device_context, step_up_pin_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [hashToken(token), userId, tenantId, ipAddress ?? null, userAgent ?? null, expiresAt, authMethod, assuranceLevel, JSON.stringify(deviceContext ?? {}), stepUpPin ? hashDemoStepUpPin(stepUpPin) : null],
   );
-  return { token, expiresAt };
+  return { token, expiresAt, stepUpPin };
+}
+
+// Compares against the hash planted at session creation (or directly by a test) — never a
+// fixed constant. Returns false (not an error) for a session with no PIN at all, e.g. a real
+// password/passkey session, which should never reach this check in practice since
+// requireStepUp.js only gates assuranceLevel === 'demo' sessions.
+export async function verifyStepUpPin(pool, token, pin) {
+  const { rows } = await pool.query(`SELECT step_up_pin_hash FROM sessions WHERE token_hash = $1`, [hashToken(token)]);
+  const hash = rows[0]?.step_up_pin_hash;
+  if (!hash) return false;
+  return hash === hashDemoStepUpPin(pin ?? '');
 }
 
 export async function lookupSession(pool, token) {

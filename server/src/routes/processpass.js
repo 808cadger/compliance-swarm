@@ -3,15 +3,9 @@ import { config } from '../config.js';
 import { asyncRoute } from '../asyncRoute.js';
 import { writeAudit } from '../audit.js';
 import authenticate from '../middleware/authenticate.js';
-import { createSession, deleteSession, markStepUpComplete, getSessionStatus } from '../auth/session.js';
+import { createSession, deleteSession, markStepUpComplete, getSessionStatus, verifyStepUpPin } from '../auth/session.js';
 import { DemoIdentityProvider } from '../services/identityProviders/DemoIdentityProvider.js';
 import { evaluateProcessAccess, listProcessesForRole } from '../services/processAccess.js';
-
-// A fixed, publicly-documented value on purpose: this simulates the *shape* of a step-up
-// confirmation (something typed, a distinct request, an audited outcome), not a real second
-// factor. A real deployment would swap this route for a real passkey/PIN provider, same as
-// DemoIdentityProvider swaps out for a real biometric provider.
-const DEMO_STEP_UP_PIN = '1234';
 
 function requireDemoMode(req, res, next) {
   if (!config.demoMode) {
@@ -124,7 +118,7 @@ export default function processpassRoutes({ pool }) {
       metadata: { method: 'demo_identity' }, ipAddress: req.ip,
     });
 
-    const { token, expiresAt } = await createSession(pool, {
+    const { token, expiresAt, stepUpPin } = await createSession(pool, {
       userId, tenantId, ipAddress: req.ip, userAgent: req.get('user-agent'),
       authMethod: 'demo_identity', assuranceLevel: 'demo',
       deviceContext: deviceContext ?? { kiosk: true },
@@ -159,6 +153,11 @@ export default function processpassRoutes({ pool }) {
       assignedSites,
       sessionExpiresAt: expiresAt,
       processes: evaluated,
+      // Demo-only: a real deployment would send this to the user's device out of band, never
+      // hand it back in the same response that authenticated them. Surfaced so the frontend
+      // can show it at the moment step-up is actually needed, instead of a publicly-documented
+      // constant every session shared.
+      stepUpPin,
     });
   }));
 
@@ -246,7 +245,7 @@ export default function processpassRoutes({ pool }) {
 
   router.post('/step-up', authenticate(pool), requireDemoMode, asyncRoute(async (req, res) => {
     const { pin } = req.body ?? {};
-    if (pin !== DEMO_STEP_UP_PIN) {
+    if (!(await verifyStepUpPin(pool, req.sessionToken, pin))) {
       return res.status(401).json({ error: { code: 'invalid_pin', message: 'Incorrect PIN.' } });
     }
     const until = await markStepUpComplete(pool, req.sessionToken);

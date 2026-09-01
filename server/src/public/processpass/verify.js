@@ -124,6 +124,11 @@ async function selectPersona(id, btn) {
     const data = await res.json();
     markStepDone('policy');
     sessionStorage.setItem('pp:lastResult', JSON.stringify(data));
+    // Kept under its own key (not just inside pp:lastResult, which decision.js consumes and
+    // discards on first load) so it's still readable if the tab is later navigated to another
+    // authenticated page (e.g. /dashboard/accounting) that also needs it for its own step-up
+    // prompt, or if My Processes is reloaded mid-demo.
+    if (data.stepUpPin) sessionStorage.setItem('pp:stepUpPin', data.stepUpPin);
     setTimeout(() => { window.location.href = '/processpass/decision'; }, 350);
   } catch {
     document.getElementById('verifyMsg').textContent = 'Something went wrong — please try again.';

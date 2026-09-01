@@ -341,6 +341,10 @@ body.pp-body {
   width: 100%; padding: 0.65rem; font-size: 1.1rem; letter-spacing: 0.3em;
   text-align: center; border: 1px solid var(--pp-line); border-radius: 10px; margin-bottom: 0.75rem;
 }
+.pp-modal-hint {
+  background: var(--pp-amber-soft); color: var(--pp-amber); border: 1px solid #f0d999;
+  border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.82rem; margin-bottom: 0.75rem;
+}
 .pp-modal-err { color: var(--pp-red); font-size: 0.82rem; min-height: 1.1rem; margin-bottom: 0.5rem; }
 .pp-modal-actions { display: flex; gap: 0.6rem; }
 .pp-modal-actions .pp-btn { padding: 0.6rem 1rem; font-size: 0.92rem; }

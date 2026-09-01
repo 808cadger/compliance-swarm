@@ -11,6 +11,7 @@ const STATUS_LABELS = {
 };
 
 let pendingStartKey = null;
+const demoStepUpPin = sessionStorage.getItem('pp:stepUpPin');
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -175,6 +176,9 @@ async function startProcess(processKey) {
 function openStepUpModal() {
   document.getElementById('stepUpErr').textContent = '';
   document.getElementById('stepUpPin').value = '';
+  document.getElementById('stepUpHint').textContent = demoStepUpPin
+    ? `Demo mode: your one-time code for this session is ${demoStepUpPin} — a real deployment would send this to your device instead of showing it here.`
+    : 'Demo mode: no one-time code is available for this session — sign out and verify again through the kiosk.';
   document.getElementById('stepUpBackdrop').classList.add('pp-open');
   document.getElementById('stepUpPin').focus();
 }
@@ -190,7 +194,7 @@ document.getElementById('stepUpConfirm').addEventListener('click', async () => {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),
   });
   if (!res.ok) {
-    document.getElementById('stepUpErr').textContent = 'Incorrect PIN. (This is a demo — try 1234.)';
+    document.getElementById('stepUpErr').textContent = 'Incorrect PIN.';
     return;
   }
   const key = pendingStartKey;
@@ -200,6 +204,7 @@ document.getElementById('stepUpConfirm').addEventListener('click', async () => {
 
 document.getElementById('signOutBtn').addEventListener('click', async () => {
   await fetch('/api/processpass/session/end', { method: 'POST' });
+  sessionStorage.removeItem('pp:stepUpPin');
   window.location.href = '/processpass';
 });
 
