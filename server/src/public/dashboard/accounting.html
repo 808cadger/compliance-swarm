@@ -5,15 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Accounting — Dashboard</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; }
-  fieldset { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1rem; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; color: #1a2b20; }
+  h1 { color: #1a5f38; }
+  fieldset { border: 1px solid #d8ded9; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(26,95,56,0.06); }
+  legend { font-weight: 600; color: #1a5f38; padding: 0 0.4rem; }
   label { display: block; margin-top: 0.6rem; font-size: 0.9rem; }
-  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; }
-  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; }
+  input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-size: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+  button { padding: 0.6rem 1rem; margin-top: 0.75rem; font-size: 1rem; background: #1a5f38; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #144a2c; }
   #receiptList { list-style: none; padding: 0; margin-top: 0.75rem; }
   #receiptList li { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   #receiptList img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
-  #receiptList button { margin-left: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+  #receiptList button { margin-left: auto; padding: 0.3rem 0.6rem; font-size: 0.85rem; background: #7a271a; }
+  #receiptList button:hover { background: #5c1d13; }
   .msg { padding: 0.5rem 0.75rem; border-radius: 6px; margin-top: 0.75rem; font-size: 0.9rem; }
   .msg.ok { background: #e6f4ea; color: #1e4620; }
   .msg.err { background: #fdecea; color: #7a271a; }

@@ -45,7 +45,7 @@ export default function receiptRoutes({ pool }) {
 
   router.post(
     '/',
-    requireRole('accounting'),
+    requireRole('accounting', 'owner_admin'),
     upload.single('file'),
     // Same MulterError-translation precedent as media.js: a size-limit rejection carries no
     // .status/.statusCode, so left unhandled it would fall through to a generic 500.
@@ -126,8 +126,8 @@ export default function receiptRoutes({ pool }) {
   // Deleting filed compliance evidence is exactly the "delete compliance evidence" example
   // action from the ProcessPass step-up rules — gated the same way as the audit trail
   // (routes/audit.js). requireStepUp is a no-op for a real password-authenticated accounting
-  // user; this only adds friction for a ProcessPass demo session.
-  router.delete('/:id', requireRole('accounting'), requireStepUp(pool, 'delete_receipt'), asyncRoute(async (req, res) => {
+  // or owner_admin user; this only adds friction for a ProcessPass demo session.
+  router.delete('/:id', requireRole('accounting', 'owner_admin'), requireStepUp(pool, 'delete_receipt'), asyncRoute(async (req, res) => {
     const { rows } = await pool.query(
       `DELETE FROM receipts WHERE id = $1 AND tenant_id = $2 RETURNING storage_key`,
       [req.params.id, req.user.tenantId],

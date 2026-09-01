@@ -44,11 +44,12 @@ test('accounting can file a receipt', async () => {
   assert.equal(res.body.mimeType, 'image/jpeg');
 });
 
-test('owner_admin cannot file a receipt', async () => {
+test('owner_admin can file a receipt', async () => {
   const owner = await seedUserWithCookie('owner_admin');
   const res = await request(createApp()).post('/api/receipts').set('Cookie', [owner.cookie])
     .field('kind', 'receipt').attach('file', SAMPLE_JPG);
-  assert.equal(res.status, 403);
+  assert.equal(res.status, 201);
+  assert.equal(res.body.kind, 'receipt');
 });
 
 test('supervisor cannot file a receipt', async () => {
@@ -94,14 +95,17 @@ test('accounting can delete their own receipt, and it is actually gone', async (
   assert.equal(refetch.status, 404);
 });
 
-test('owner_admin cannot delete a receipt', async () => {
+test('owner_admin can delete a receipt filed by accounting, and it is actually gone', async () => {
   const acct = await seedUserWithCookie('accounting');
   const owner = await seedUserWithCookie('owner_admin', acct.tenantId, 'owner@test.co');
   const upload = await request(createApp()).post('/api/receipts').set('Cookie', [acct.cookie])
     .field('kind', 'receipt').attach('file', SAMPLE_JPG);
 
-  const res = await request(createApp()).delete(`/api/receipts/${upload.body.id}`).set('Cookie', [owner.cookie]);
-  assert.equal(res.status, 403);
+  const del = await request(createApp()).delete(`/api/receipts/${upload.body.id}`).set('Cookie', [owner.cookie]);
+  assert.equal(del.status, 204);
+
+  const refetch = await request(createApp()).get(`/api/receipts/${upload.body.id}`).set('Cookie', [owner.cookie]);
+  assert.equal(refetch.status, 404);
 });
 
 test('cross-tenant retrieval, list, and delete all behave correctly (404, never 403)', async () => {
@@ -121,7 +125,7 @@ test('cross-tenant retrieval, list, and delete all behave correctly (404, never 
   assert.deepEqual(listRes.body, []);
 });
 
-test('owner_admin can list and retrieve receipts in their tenant (read-only role actually works)', async () => {
+test('owner_admin can list and retrieve receipts in their tenant', async () => {
   const acct = await seedUserWithCookie('accounting');
   const owner = await seedUserWithCookie('owner_admin', acct.tenantId, 'owner@test.co');
   const upload = await request(createApp()).post('/api/receipts').set('Cookie', [acct.cookie])
